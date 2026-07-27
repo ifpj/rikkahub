@@ -93,6 +93,9 @@ jobs:
           if [ -n "${{ secrets.KEY_BASE64 }}" ]; then
             echo "${{ secrets.KEY_BASE64 }}" | base64 -d > app/app.key
             echo "${{ secrets.SIGNING_CONFIG }}" > local.properties
+            # file() 在 app/build.gradle.kts 中相对于 app/ 目录解析
+            # keystore 放在 app/app.key，所以 storeFile 应为 app.key
+            sed -i 's|^storeFile=.*|storeFile=app.key|' local.properties
           fi
 
           # google-services.json（缺失则用占位文件，禁用 Firebase 功能但不影响编译）
@@ -120,9 +123,12 @@ jobs:
           sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/' app/build.gradle.kts
           sed -i 's/isShrinkResources = true/isShrinkResources = false/' app/build.gradle.kts
 
-      - name: Use debug signing for CI
+      - name: Fallback to debug signing if no secrets
+        if: env.HAS_SIGNING == ''
+        env:
+          HAS_SIGNING: ${{ secrets.KEY_BASE64 }}
         run: |
-          # fork CI 始终使用 debug 签名，不走 release keystore
+          # 没有签名配置时，release 构建使用 debug 签名
           sed -i 's/signingConfig = signingConfigs.getByName("release")/signingConfig = signingConfigs.getByName("debug")/' app/build.gradle.kts
 
       - name: Gradle Build
