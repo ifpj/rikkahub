@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -1131,42 +1132,69 @@ private fun SyncConfirmDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(stringResource(R.string.setting_provider_page_sync_title))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    HugeIcons.Refresh03,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp)
+                )
+                Text(stringResource(R.string.setting_provider_page_sync_title))
+            }
         },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.verticalScroll(rememberScrollState())
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (toAdd.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = stringResource(R.string.setting_provider_page_sync_add_section, toAdd.size),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = Color(0xFF4CAF50)
-                        )
-                        toAdd.forEach { model ->
-                            Text(
-                                text = "· ${model.modelId}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                HugeIcons.Add01,
+                                contentDescription = null,
+                                tint = Color(0xFF4CAF50),
+                                modifier = Modifier.size(16.dp)
                             )
+                            Text(
+                                text = stringResource(R.string.setting_provider_page_sync_add_section, toAdd.size),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Color(0xFF4CAF50)
+                            )
+                        }
+                        toAdd.forEach { model ->
+                            ModelRow(model = model)
                         }
                     }
                 }
                 if (toRemove.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = stringResource(R.string.setting_provider_page_sync_remove_section, toRemove.size),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = Color(0xFFF44336)
-                        )
-                        toRemove.forEach { model ->
-                            Text(
-                                text = "· ${model.modelId}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                HugeIcons.Cancel01,
+                                contentDescription = null,
+                                tint = Color(0xFFF44336),
+                                modifier = Modifier.size(16.dp)
                             )
+                            Text(
+                                text = stringResource(R.string.setting_provider_page_sync_remove_section, toRemove.size),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Color(0xFFF44336)
+                            )
+                        }
+                        toRemove.forEach { model ->
+                            ModelRow(model = model)
                         }
                     }
                 }
@@ -1186,10 +1214,39 @@ private fun SyncConfirmDialog(
 }
 
 @Composable
+private fun ModelRow(model: Model) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AutoAIIcon(
+                model.modelId,
+                Modifier.size(20.dp)
+            )
+            Text(
+                text = model.modelId,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
 private fun StaleModelBanner(
     staleModels: List<Model>,
     onCleanup: () -> Unit
 ) {
+    var showDialog by remember { mutableStateOf(false) }
+
     OutlinedCard(
         colors = CardDefaults.outlinedCardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
@@ -1213,23 +1270,59 @@ private fun StaleModelBanner(
                     text = stringResource(R.string.setting_provider_page_stale_models_title, staleModels.size),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                val displayModels = staleModels.take(3)
-                val remaining = staleModels.size - 3
-                Text(
-                    text = displayModels.joinToString(", ") { it.modelId } +
-                        if (remaining > 0) stringResource(R.string.setting_provider_page_stale_and_more, remaining) else "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
-            TextButton(onClick = onCleanup) {
+            TextButton(onClick = { showDialog = true }) {
                 Text(stringResource(R.string.setting_provider_page_cleanup_stale))
             }
         }
     }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        HugeIcons.Alert02,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(stringResource(R.string.setting_provider_page_stale_models_title, staleModels.size))
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 300.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    staleModels.forEach { model ->
+                        ModelRow(model = model)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDialog = false
+                    onCleanup()
+                }) {
+                    Text(stringResource(R.string.setting_provider_page_cleanup_stale))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
 }
+
 
 @Composable
 private fun ModelTypeSelector(
