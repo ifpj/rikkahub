@@ -75,6 +75,7 @@ export interface AssistantProfile {
   useAssistantAvatar?: boolean;
   tags: string[];
   quickMessageIds?: string[];
+  workspaceId?: string | null;
   [key: string]: unknown;
 }
 
