@@ -24,9 +24,11 @@ jobs:
           git remote add upstream https://github.com/rikkahub/rikkahub.git || true
           git fetch upstream --tags --quiet
 
-          # 从上游 master 的 build.gradle.kts 中提取版本号
+          # 从上游 master 的 build.gradle.kts 中提取版本号和 versionCode
           UPSTREAM_VERSION=$(git show upstream/master:app/build.gradle.kts | grep -oP 'versionName\s*=\s*"\K[^"]+')
           echo "upstream_version=$UPSTREAM_VERSION"
+          UPSTREAM_VC=$(git show upstream/master:app/build.gradle.kts | grep -oP 'versionCode\s*=\s*\K[0-9]+')
+          echo "upstream_version_code=$UPSTREAM_VC"
 
           # 找到上游版本号对应的 tag commit
           if git rev-parse "$UPSTREAM_VERSION" >/dev/null 2>&1; then
@@ -46,7 +48,12 @@ jobs:
           # 组合版本号: 上游版本-用户名-领先数
           FORK_VERSION="${UPSTREAM_VERSION}-${FORK_USER}-${AHEAD}"
           echo "fork_version=$FORK_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Fork version: $FORK_VERSION"
+
+          # 计算 fork versionCode: upstreamVC * 10000 + ahead 提交数
+          FORK_VC=$((UPSTREAM_VC * 10000 + AHEAD))
+          echo "fork_version_code=$FORK_VC" >> "$GITHUB_OUTPUT"
+
+          echo "Fork version: $FORK_VERSION (versionCode: $FORK_VC)"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -77,6 +84,8 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Prepare build files
         run: |
@@ -84,6 +93,9 @@ jobs:
           if [ -n "${{ secrets.KEY_BASE64 }}" ]; then
             echo "${{ secrets.KEY_BASE64 }}" | base64 -d > app/app.key
             echo "${{ secrets.SIGNING_CONFIG }}" > local.properties
+            # file() 在 app/build.gradle.kts 中相对于 app/ 目录解析
+            # keystore 放在 app/app.key，所以 storeFile 应为 app.key
+            sed -i 's|^storeFile=.*|storeFile=app.key|' local.properties
           fi
 
           # google-services.json（缺失则用占位文件，禁用 Firebase 功能但不影响编译）
@@ -99,10 +111,17 @@ jobs:
           GSEOF
           fi
 
-      - name: Override versionName
+      - name: Override versionName and versionCode
         run: |
           FORK_VERSION="${{ steps.version.outputs.fork_version }}"
+          FORK_VC="${{ steps.version.outputs.fork_version_code }}"
           sed -i "s/versionName = \".*\"/versionName = \"$FORK_VERSION\"/" app/build.gradle.kts
+          sed -i "s/versionCode = .*/versionCode = $FORK_VC/" app/build.gradle.kts
+
+      - name: Disable R8 and resource shrinking for CI speed
+        run: |
+          sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/' app/build.gradle.kts
+          sed -i 's/isShrinkResources = true/isShrinkResources = false/' app/build.gradle.kts
 
       - name: Fallback to debug signing if no secrets
         if: env.HAS_SIGNING == ''
@@ -115,7 +134,10 @@ jobs:
       - name: Gradle Build
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease --parallel --build-cache \
+            -x lintVitalAnalyzeRelease \
+            -x lintVitalReportRelease \
+            -x lintVitalRelease
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
