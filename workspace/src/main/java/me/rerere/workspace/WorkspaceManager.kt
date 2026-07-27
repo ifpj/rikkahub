@@ -157,7 +157,7 @@ class WorkspaceManager(
         outputStream.use { out -> file.inputStream().use { it.copyTo(out) } }
     }
 
-    private fun resolveRootfsFile(root: String, path: String): File {
+    fun resolveRootfsFile(root: String, path: String): File {
         val location = resolveRootfsPath(root, path)
         return fileSystem.resolve(location.rootDir, location.relativePath)
     }
