@@ -67,6 +67,9 @@ private fun createReadFileTool(
         Read a file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
         Use /workspace for the workspace files area.
         Supports UTF-8 text files and image files (png, jpg, jpeg, gif, webp, bmp).
+        NOTE: For image files, you can also embed them directly in your response using markdown
+        image syntax: ![alt text](/workspace/path/to/image.png)
+        This will display the image inline in the chat without needing to call this tool.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
