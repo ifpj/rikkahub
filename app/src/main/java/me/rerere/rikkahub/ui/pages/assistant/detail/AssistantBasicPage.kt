@@ -262,6 +262,28 @@ internal fun AssistantBasicContent(
             FormItem(
                 modifier = Modifier.padding(8.dp),
                 label = {
+                    Text(stringResource(R.string.assistant_page_allow_conversation_model))
+                },
+                description = {
+                    Text(stringResource(R.string.assistant_page_allow_conversation_model_desc))
+                },
+                tail = {
+                    Switch(
+                        checked = assistant.allowConversationModel,
+                        onCheckedChange = {
+                            onUpdate(
+                                assistant.copy(
+                                    allowConversationModel = it
+                                )
+                            )
+                        }
+                    )
+                }
+            )
+            HorizontalDivider()
+            FormItem(
+                modifier = Modifier.padding(8.dp),
+                label = {
                     Text(stringResource(R.string.assistant_page_temperature))
                 },
                 description = {

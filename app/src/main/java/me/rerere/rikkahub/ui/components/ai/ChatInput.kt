@@ -262,7 +262,11 @@ fun ChatInput(
                         ) {
                             // Model Picker
                             ModelSelector(
-                                modelId = assistant.chatModelId ?: settings.chatModelId,
+                                modelId = if (assistant.allowConversationModel && conversation?.chatModelId != null) {
+                                    conversation.chatModelId
+                                } else {
+                                    assistant.chatModelId ?: settings.chatModelId
+                                },
                                 providers = settings.providers,
                                 onSelect = {
                                     onUpdateChatModel(it)

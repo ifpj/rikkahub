@@ -388,7 +388,12 @@ private fun ChatPageContent(
                         inputState.clearInput()
                     },
                     onUpdateChatModel = {
-                        vm.setChatModel(assistant = setting.getCurrentAssistant(), model = it)
+                        val currentAssistant = setting.getCurrentAssistant()
+                        if (currentAssistant.allowConversationModel) {
+                            vm.setConversationChatModel(conversation = conversation, model = it)
+                        } else {
+                            vm.setChatModel(assistant = currentAssistant, model = it)
+                        }
                     },
                     onUpdateAssistant = {
                         vm.updateSettings(

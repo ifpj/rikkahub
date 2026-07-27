@@ -472,7 +472,12 @@ class ChatService(
         val initialConversation = getConversationFlow(conversationId).value
         val assistant = settings.getAssistantById(initialConversation.assistantId)
             ?: settings.getCurrentAssistant()
-        val model = settings.findModelById(assistant.chatModelId ?: settings.chatModelId) ?: return
+        val modelId = if (assistant.allowConversationModel && initialConversation.chatModelId != null) {
+            initialConversation.chatModelId
+        } else {
+            assistant.chatModelId ?: settings.chatModelId
+        }
+        val model = settings.findModelById(modelId) ?: return
 
         val senderName = if (assistant.useAssistantAvatar) {
             assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }

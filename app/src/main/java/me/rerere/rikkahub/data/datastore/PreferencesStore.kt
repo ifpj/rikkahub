@@ -23,6 +23,7 @@ import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.AppScope
+import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_COMPRESS_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_OCR_PROMPT
@@ -658,6 +659,16 @@ fun List<ProviderSetting>.findModelById(uuid: Uuid): Model? {
 
 fun Settings.getCurrentChatModel(): Model? {
     return findModelById(this.getCurrentAssistant().chatModelId ?: this.chatModelId)
+}
+
+fun Settings.getCurrentChatModel(conversation: Conversation?): Model? {
+    val assistant = this.getCurrentAssistant()
+    val modelId = if (assistant.allowConversationModel && conversation?.chatModelId != null) {
+        conversation.chatModelId
+    } else {
+        assistant.chatModelId ?: this.chatModelId
+    }
+    return findModelById(modelId)
 }
 
 fun Settings.getCurrentAssistant(): Assistant {
