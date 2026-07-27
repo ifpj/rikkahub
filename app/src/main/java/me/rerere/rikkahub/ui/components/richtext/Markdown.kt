@@ -96,6 +96,8 @@ import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.ui.components.table.DataTable
 import me.rerere.rikkahub.ui.context.LocalSettings
+import me.rerere.rikkahub.ui.context.LocalWorkspaceImageContext
+import me.rerere.rikkahub.ui.context.resolveWorkspaceImageUrl
 import me.rerere.rikkahub.ui.modifier.onClick
 import me.rerere.rikkahub.ui.theme.JetbrainsMono
 import me.rerere.rikkahub.utils.toDp
@@ -520,12 +522,13 @@ private fun MarkdownNode(
             val altText = node.findChildOfTypeRecursive(MarkdownElementTypes.LINK_TEXT)?.getTextInNode(content) ?: ""
             val imageUrl =
                 node.findChildOfTypeRecursive(MarkdownElementTypes.LINK_DESTINATION)?.getTextInNode(content) ?: ""
+            val resolvedUrl = resolveWorkspaceImageUrl(imageUrl)
             Column(
                 modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // 这里可以使用Coil等图片加载库加载图片
                 ZoomableAsyncImage(
-                    model = imageUrl,
+                    model = resolvedUrl,
                     contentDescription = altText,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -1311,4 +1314,22 @@ private fun List<ASTNode>.trim(type: IElementType, size: Int): List<ASTNode> {
         trimmed++
     }
     return this.subList(start, end)
+}
+
+/**
+ * 解析 Markdown 图片 URL：将工作区路径（/workspace/...）转换为 file:// URI，
+ * Coil 和 Web UI 均可直接加载。已是完整 URI 的路径原样返回。
+ */
+@Composable
+private fun resolveWorkspaceImageUrl(rawUrl: String): String {
+    if (rawUrl.startsWith("file://") || rawUrl.startsWith("http://") ||
+        rawUrl.startsWith("https://") || rawUrl.startsWith("data:")
+    ) {
+        return rawUrl
+    }
+    val context = LocalWorkspaceImageContext.current
+    if (context != null && rawUrl.startsWith("/")) {
+        return me.rerere.rikkahub.ui.context.resolveWorkspaceImageUrl(context, rawUrl) ?: rawUrl
+    }
+    return rawUrl
 }

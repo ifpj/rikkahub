@@ -29,6 +29,7 @@ import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,7 +79,9 @@ import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvide
 import me.rerere.rikkahub.ui.components.ai.rememberChatAttachmentPickerActions
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.context.LocalWorkspaceImageContext
 import me.rerere.rikkahub.ui.context.Navigator
+import me.rerere.rikkahub.ui.context.WorkspaceImageContext
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
@@ -286,6 +289,15 @@ private fun ChatPageContent(
         setting.getCurrentChatModel()?.findProvider(setting.providers) is ProviderSetting.Google
     var showInjectionSheet by remember { mutableStateOf(false) }
 
+    val workspaceImageContext = remember(assistant.workspaceId, context.filesDir) {
+        assistant.workspaceId?.let { wsId ->
+            WorkspaceImageContext(
+                workspaceId = wsId.toString(),
+                workspaceFilesDir = File(context.filesDir, "workspaces/${wsId}/files"),
+            )
+        }
+    }
+
     val completionProviders = remember(assistant.workspaceId, conversation.workspaceCwd, workspaceRepository) {
         assistant.workspaceId?.let { workspaceId ->
             listOf(
@@ -439,7 +451,8 @@ private fun ChatPageContent(
             },
             containerColor = Color.Transparent,
         ) { innerPadding ->
-            ChatList(
+            CompositionLocalProvider(LocalWorkspaceImageContext provides workspaceImageContext) {
+                ChatList(
                 innerPadding = innerPadding,
                 conversation = conversation,
                 state = chatListState,
@@ -514,6 +527,7 @@ private fun ChatPageContent(
                     vm.saveConversationAsync()
                 },
             )
+            } // CompositionLocalProvider for workspace image context
         }
 
         if (showFilesSheet) {
