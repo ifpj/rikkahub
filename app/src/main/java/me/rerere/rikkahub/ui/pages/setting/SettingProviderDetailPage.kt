@@ -1248,6 +1248,7 @@ private fun StaleModelBanner(
     var showDialog by remember { mutableStateOf(false) }
 
     OutlinedCard(
+        onClick = { showDialog = true },
         colors = CardDefaults.outlinedCardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
         ),
@@ -1265,15 +1266,10 @@ private fun StaleModelBanner(
                 tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(20.dp)
             )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.setting_provider_page_stale_models_title, staleModels.size),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            TextButton(onClick = { showDialog = true }) {
-                Text(stringResource(R.string.setting_provider_page_cleanup_stale))
-            }
+            Text(
+                text = stringResource(R.string.setting_provider_page_stale_models_title, staleModels.size),
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
     }
 
