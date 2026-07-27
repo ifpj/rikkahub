@@ -178,7 +178,11 @@ fun ChatInput(
         bottomStart = themeShape.bottomStart,
     )
     val modelListState = rememberModelListState(
-        modelId = assistant.chatModelId ?: settings.chatModelId,
+        modelId = if (assistant.allowConversationModel && conversation?.chatModelId != null) {
+            conversation.chatModelId
+        } else {
+            assistant.chatModelId ?: settings.chatModelId
+        },
         providers = settings.providers,
         type = ModelType.CHAT,
     )

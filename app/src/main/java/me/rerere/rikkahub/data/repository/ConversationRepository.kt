@@ -371,6 +371,7 @@ class ConversationRepository(
             modeInjectionIds = JsonInstant.encodeToString(conversation.modeInjectionIds),
             lorebookIds = JsonInstant.encodeToString(conversation.lorebookIds),
             workspaceCwd = conversation.workspaceCwd ?: "",
+            chatModelId = conversation.chatModelId?.toString() ?: "",
             folderId = conversation.folderId?.toString() ?: "",
         )
     }
@@ -392,6 +393,7 @@ class ConversationRepository(
             modeInjectionIds = JsonInstant.decodeFromString(conversationEntity.modeInjectionIds),
             lorebookIds = JsonInstant.decodeFromString(conversationEntity.lorebookIds),
             workspaceCwd = conversationEntity.workspaceCwd.ifEmpty { null },
+            chatModelId = conversationEntity.chatModelId.ifEmpty { null }?.let { Uuid.parse(it) },
             folderId = conversationEntity.folderId.ifEmpty { null }?.let { Uuid.parse(it) },
         )
     }
