@@ -73,6 +73,7 @@ import me.rerere.rikkahub.ui.components.ai.ChatAttachmentPickerActions
 import me.rerere.rikkahub.ui.components.ai.ChatInput
 import me.rerere.rikkahub.ui.components.ai.FilesPicker
 import me.rerere.rikkahub.ui.components.ai.SearchMode
+import me.rerere.rikkahub.ui.components.ai.InjectionQuickConfigSheet
 import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvider
 import me.rerere.rikkahub.ui.components.ai.rememberChatAttachmentPickerActions
 import me.rerere.rikkahub.ui.context.LocalNavController
@@ -283,6 +284,7 @@ private fun ChatPageContent(
     )
     val allowAudioVideoAttachments =
         setting.getCurrentChatModel()?.findProvider(setting.providers) is ProviderSetting.Google
+    var showInjectionSheet by remember { mutableStateOf(false) }
 
     val completionProviders = remember(assistant.workspaceId, conversation.workspaceCwd, workspaceRepository) {
         assistant.workspaceId?.let { workspaceId ->
@@ -329,6 +331,12 @@ private fun ChatPageContent(
                     settings = setting,
                     hazeState = hazeState,
                     completionProviders = completionProviders,
+                    mcpManager = vm.mcpManager,
+                    conversation = conversation,
+                    onExtensionsClick = {
+                        showFilesSheet = false
+                        showInjectionSheet = true
+                    },
                     onCancelClick = {
                         vm.stopGeneration()
                     },
@@ -512,6 +520,29 @@ private fun ChatPageContent(
                 vm = vm,
                 attachmentPickerActions = attachmentPickerActions,
                 onDismiss = { showFilesSheet = false },
+            )
+        }
+
+        if (showInjectionSheet) {
+            InjectionQuickConfigSheet(
+                conversation = conversation,
+                assistant = assistant,
+                settings = setting,
+                onUpdateAssistant = {
+                    vm.updateSettings(
+                        setting.copy(
+                            assistants = setting.assistants.map { a ->
+                                if (a.id == it.id) it else a
+                            }
+                        )
+                    )
+                },
+                onUpdateConversation = {
+                    vm.updateConversation(it)
+                    vm.saveConversationAsync()
+                },
+                onDismiss = { showInjectionSheet = false },
+                onDismissAll = { showInjectionSheet = false },
             )
         }
     }
