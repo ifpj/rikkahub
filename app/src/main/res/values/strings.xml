@@ -996,6 +996,17 @@
   <string name="setting_provider_page_tool">Tool</string>
   <string name="setting_provider_page_use_service_account">Use Service Account</string>
   <string name="setting_provider_page_vertex_ai">Vertex AI</string>
+  <string name="setting_provider_page_stale_models_title">%d models no longer available upstream</string>
+  <string name="setting_provider_page_cleanup_stale">Clean Up</string>
+  <string name="setting_provider_page_sync">Sync</string>
+  <string name="setting_provider_page_sync_title">Sync Models</string>
+  <string name="setting_provider_page_sync_apply">Apply Sync</string>
+  <string name="setting_provider_page_sync_add_section">Add (%d)</string>
+  <string name="setting_provider_page_sync_remove_section">Remove (%d)</string>
+  <string name="setting_provider_page_sync_already">Already in sync</string>
+  <string name="setting_provider_page_sync_result_toast">Synced: +%d added, -%d removed</string>
+  <string name="setting_provider_page_stale_cleaned_toast">Removed %d stale models</string>
+  <string name="setting_provider_page_stale_and_more">...and %d more</string>
   <string name="setting_tts_page_add">Add</string>
   <string name="setting_tts_page_add_provider">Add TTS Provider</string>
   <string name="setting_tts_page_add_provider_content_description">Add TTS Provider</string>

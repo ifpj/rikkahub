@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.ui.pages.setting
 
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Alert02
 import me.rerere.hugeicons.stroke.Package01
 import me.rerere.hugeicons.stroke.Connect
 import me.rerere.hugeicons.stroke.ArrowDown01
@@ -40,6 +41,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
 import androidx.compose.material3.FloatingToolbarDefaults.floatingToolbarVerticalNestedScroll
@@ -397,6 +399,12 @@ private fun ModelList(
             it.printStackTrace()
         }
     }
+    val upstreamModelIds = remember(modelList) { modelList.map { it.modelId }.toSet() }
+    val staleModels = remember(providerSetting, upstreamModelIds) {
+        if (upstreamModelIds.isEmpty()) emptyList()
+        else providerSetting.models.filter { it.modelId !in upstreamModelIds }
+    }
+    val toaster = LocalToaster.current
     var expanded by rememberSaveable { mutableStateOf(true) }
     val lazyListState = rememberLazyListState()
     val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
@@ -417,6 +425,28 @@ private fun ModelList(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             state = lazyListState
         ) {
+            // 过期模型横幅
+            if (staleModels.isNotEmpty()) {
+                item {
+                    StaleModelBanner(
+                        staleModels = staleModels,
+                        onCleanup = {
+                            onUpdateProvider(
+                                providerSetting.copyProvider(
+                                    models = providerSetting.models.filter { it !in staleModels }
+                                )
+                            )
+                            toaster.show(
+                                type = ToastType.Success,
+                                message = stringResource(
+                                    R.string.setting_provider_page_stale_cleaned_toast,
+                                    staleModels.size
+                                )
+                            )
+                        }
+                    )
+                }
+            }
             // 模型列表
             if (providerSetting.models.isEmpty()) {
                 item {
@@ -487,7 +517,30 @@ private fun ModelList(
                 },
                 expanded = expanded,
                 parentProvider = providerSetting,
-                onUpdateProvider = onUpdateProvider
+                onUpdateProvider = onUpdateProvider,
+                onSync = { toAdd, toRemove ->
+                    onUpdateProvider(
+                        providerSetting.copyProvider(
+                            models = providerSetting.models
+                                .filter { model -> toRemove.none { it.modelId == model.modelId } }
+                                .plus(toAdd.map { model ->
+                                    model.copy(
+                                        inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(model.modelId),
+                                        outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(model.modelId),
+                                        abilities = ModelRegistry.MODEL_ABILITIES.getData(model.modelId)
+                                    )
+                                })
+                        )
+                    )
+                    toaster.show(
+                        type = ToastType.Success,
+                        message = stringResource(
+                            R.string.setting_provider_page_sync_result_toast,
+                            toAdd.size,
+                            toRemove.size
+                        )
+                    )
+                }
             )
         }
     }
@@ -682,10 +735,12 @@ private fun AddModelButton(
     onAddModel: (Model) -> Unit,
     onRemoveModel: (Model) -> Unit,
     parentProvider: ProviderSetting,
-    onUpdateProvider: (ProviderSetting) -> Unit
+    onUpdateProvider: (ProviderSetting) -> Unit,
+    onSync: (toAdd: List<Model>, toRemove: List<Model>) -> Unit
 ) {
     val dialogState = useEditState<Model> { onAddModel(it) }
     val scope = rememberCoroutineScope()
+    val toaster = LocalToaster.current
 
     Row(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -732,7 +787,8 @@ private fun AddModelButton(
                         }
                     )
                 )
-            }
+            },
+            onSync = { toAdd, toRemove -> onSync(toAdd, toRemove) }
         )
 
         Button(
@@ -842,9 +898,13 @@ private fun ModelPicker(
     onModelSelected: (Model) -> Unit,
     onModelDeselected: (Model) -> Unit,
     onAllModelSelected: (List<Model>) -> Unit,
-    onAllModelDeselected: (List<Model>) -> Unit
+    onAllModelDeselected: (List<Model>) -> Unit,
+    onSync: (toAdd: List<Model>, toRemove: List<Model>) -> Unit
 ) {
     var showModal by remember { mutableStateOf(false) }
+    var syncToAdd by remember { mutableStateOf<List<Model>>(emptyList()) }
+    var syncToRemove by remember { mutableStateOf<List<Model>>(emptyList()) }
+    val toaster = LocalToaster.current
     if (showModal) {
         ModalBottomSheet(
             onDismissRequest = { showModal = false },
@@ -870,7 +930,7 @@ private fun ModelPicker(
                     .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // 标题栏和添加所有按钮
+                // 标题栏、同步和添加所有按钮
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -887,21 +947,53 @@ private fun ModelPicker(
                         selectedModels.none { it.modelId == model.modelId }
                     }
 
-                    TextButton(
-                        onClick = {
-                            if (unselectedCount > 0) {
-                                onAllModelSelected(filteredModels)
-                            } else {
-                                onAllModelDeselected(filteredModels)
-                            }
-                        },
-                    ) {
-                        Text(
-                            if (unselectedCount > 0) stringResource(
-                                R.string.setting_provider_page_select_all,
-                                unselectedCount
-                            ) else stringResource(R.string.setting_provider_page_deselect_models)
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // Sync 按钮
+                        TextButton(
+                            onClick = {
+                                val toAdd = filteredModels.filter { model ->
+                                    selectedModels.none { it.modelId == model.modelId }
+                                }
+                                val filteredModelIds = filteredModels.map { it.modelId }.toSet()
+                                val toRemove = selectedModels.filter { model ->
+                                    model.modelId !in filteredModelIds
+                                }
+                                if (toAdd.isEmpty() && toRemove.isEmpty()) {
+                                    toaster.show(
+                                        type = ToastType.Info,
+                                        message = stringResource(R.string.setting_provider_page_sync_already)
+                                    )
+                                } else {
+                                    syncToAdd = toAdd
+                                    syncToRemove = toRemove
+                                }
+                            },
+                        ) {
+                            Icon(
+                                HugeIcons.Refresh03,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(stringResource(R.string.setting_provider_page_sync))
+                        }
+
+                        TextButton(
+                            onClick = {
+                                if (unselectedCount > 0) {
+                                    onAllModelSelected(filteredModels)
+                                } else {
+                                    onAllModelDeselected(filteredModels)
+                                }
+                            },
+                        ) {
+                            Text(
+                                if (unselectedCount > 0) stringResource(
+                                    R.string.setting_provider_page_select_all,
+                                    unselectedCount
+                                ) else stringResource(R.string.setting_provider_page_deselect_models)
+                            )
+                        }
                     }
                 }
 
@@ -991,6 +1083,22 @@ private fun ModelPicker(
                 )
             }
         }
+        // 同步确认弹窗
+        if (syncToAdd.isNotEmpty() || syncToRemove.isNotEmpty()) {
+            SyncConfirmDialog(
+                toAdd = syncToAdd,
+                toRemove = syncToRemove,
+                onConfirm = {
+                    onSync(syncToAdd, syncToRemove)
+                    syncToAdd = emptyList()
+                    syncToRemove = emptyList()
+                },
+                onDismiss = {
+                    syncToAdd = emptyList()
+                    syncToRemove = emptyList()
+                }
+            )
+        }
     }
     BadgedBox(
         badge = {
@@ -1007,6 +1115,116 @@ private fun ModelPicker(
             }
         ) {
             Icon(HugeIcons.Package01, null)
+        }
+    }
+}
+
+@Composable
+private fun SyncConfirmDialog(
+    toAdd: List<Model>,
+    toRemove: List<Model>,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(stringResource(R.string.setting_provider_page_sync_title))
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                if (toAdd.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = stringResource(R.string.setting_provider_page_sync_add_section, toAdd.size),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color(0xFF4CAF50)
+                        )
+                        toAdd.forEach { model ->
+                            Text(
+                                text = "· ${model.modelId}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+                if (toRemove.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = stringResource(R.string.setting_provider_page_sync_remove_section, toRemove.size),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color(0xFFF44336)
+                        )
+                        toRemove.forEach { model ->
+                            Text(
+                                text = "· ${model.modelId}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.setting_provider_page_sync_apply))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun StaleModelBanner(
+    staleModels: List<Model>,
+    onCleanup: () -> Unit
+) {
+    OutlinedCard(
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                HugeIcons.Alert02,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(20.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.setting_provider_page_stale_models_title, staleModels.size),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                val displayModels = staleModels.take(3)
+                val remaining = staleModels.size - 3
+                Text(
+                    text = displayModels.joinToString(", ") { it.modelId } +
+                        if (remaining > 0) stringResource(R.string.setting_provider_page_stale_and_more, remaining) else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            TextButton(onClick = onCleanup) {
+                Text(stringResource(R.string.setting_provider_page_cleanup_stale))
+            }
         }
     }
 }
