@@ -747,6 +747,7 @@
   <string name="setting_mcp_page_delete_header">删除请求头</string>
   <string name="setting_mcp_page_enable">启用</string>
   <string name="setting_mcp_page_enable_desc">是否启用此MCP服务器</string>
+  <string name="setting_mcp_page_export_copied">MCP 配置已复制到剪贴板</string>
   <string name="setting_mcp_page_header_name">请求头名称</string>
   <string name="setting_mcp_page_header_name_placeholder">例如：Authorization</string>
   <string name="setting_mcp_page_header_value">请求头值</string>

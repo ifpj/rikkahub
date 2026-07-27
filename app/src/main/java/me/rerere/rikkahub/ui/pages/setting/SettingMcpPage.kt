@@ -74,9 +74,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
@@ -86,6 +89,7 @@ import me.rerere.hugeicons.stroke.ArrowUp01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.FileImport
+import me.rerere.hugeicons.stroke.FileDownload
 import me.rerere.hugeicons.stroke.McpServer
 import me.rerere.hugeicons.stroke.MessageBlocked
 import me.rerere.hugeicons.stroke.Settings03
@@ -101,11 +105,13 @@ import me.rerere.rikkahub.ui.components.ui.Switch
 import me.rerere.rikkahub.ui.components.ui.SwitchSize
 import me.rerere.rikkahub.ui.components.ui.Tag
 import me.rerere.rikkahub.ui.components.ui.TagType
+import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.EditState
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.ui.theme.extendColors
+import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.writeClipboardText
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -134,6 +140,8 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
             ))
     }
     var showImportDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val toaster = LocalToaster.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         topBar = {
@@ -151,6 +159,15 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                         }
                     ) {
                         Icon(HugeIcons.FileImport, null)
+                    }
+                    IconButton(
+                        onClick = {
+                            val json = buildMcpServersJson(mcpConfigs)
+                            context.writeClipboardText(json)
+                            toaster.show(R.string.setting_mcp_page_export_copied)
+                        }
+                    ) {
+                        Icon(HugeIcons.FileDownload, null)
                     }
                     IconButton(
                         onClick = {
@@ -1015,6 +1032,38 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
             else -> McpServerConfig.StreamableHTTPServer(commonOptions = commonOptions, url = url)
         }
     }
+}
+
+private fun buildMcpServersJson(configs: List<McpServerConfig>): String {
+    val mcpServersObj = buildJsonObject {
+        configs.forEach { config ->
+            put(config.commonOptions.name.ifBlank { config.id.toString() }) {
+                buildJsonObject {
+                    put("type", when (config) {
+                        is McpServerConfig.SseTransportServer -> "sse"
+                        is McpServerConfig.StreamableHTTPServer -> "streamable_http"
+                    })
+                    put("url", when (config) {
+                        is McpServerConfig.SseTransportServer -> config.url
+                        is McpServerConfig.StreamableHTTPServer -> config.url
+                    })
+                    if (config.commonOptions.headers.isNotEmpty()) {
+                        put("headers") {
+                            buildJsonObject {
+                                config.commonOptions.headers.forEach { (key, value) ->
+                                    put(key, value)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    val root = buildJsonObject {
+        put("mcpServers", mcpServersObj)
+    }
+    return JsonInstantPretty.encodeToString(JsonElement.serializer(), root)
 }
 
 @Composable

@@ -715,6 +715,7 @@
   <string name="setting_mcp_page_delete_header">Удалить заголовок</string>
   <string name="setting_mcp_page_enable">Включить</string>
   <string name="setting_mcp_page_enable_desc">Включить ли этот MCP-сервер</string>
+  <string name="setting_mcp_page_export_copied">Конфигурация MCP скопирована в буфер обмена</string>
   <string name="setting_mcp_page_header_name">Имя заголовка</string>
   <string name="setting_mcp_page_header_name_placeholder">например: Авторизация</string>
   <string name="setting_mcp_page_header_value">Значение заголовка</string>

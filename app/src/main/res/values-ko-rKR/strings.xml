@@ -715,6 +715,7 @@
   <string name="setting_mcp_page_delete_header">헤더 삭제</string>
   <string name="setting_mcp_page_enable">활성화</string>
   <string name="setting_mcp_page_enable_desc">이 MCP 서버를 활성화할지 여부</string>
+  <string name="setting_mcp_page_export_copied">MCP 구성이 클립보드에 복사되었습니다</string>
   <string name="setting_mcp_page_header_name">헤더 이름</string>
   <string name="setting_mcp_page_header_name_placeholder">예: Authorization</string>
   <string name="setting_mcp_page_header_value">헤더 값</string>

@@ -715,6 +715,7 @@
   <string name="setting_mcp_page_delete_header">ヘッダーを削除</string>
   <string name="setting_mcp_page_enable">有効</string>
   <string name="setting_mcp_page_enable_desc">このMCPサーバーを有効にするかどうか</string>
+  <string name="setting_mcp_page_export_copied">MCP設定をクリップボードにコピーしました</string>
   <string name="setting_mcp_page_header_name">ヘッダー名</string>
   <string name="setting_mcp_page_header_name_placeholder">例：Authorization</string>
   <string name="setting_mcp_page_header_value">ヘッダー値</string>
