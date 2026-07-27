@@ -81,6 +81,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
+import com.dokar.sonner.ToastType
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.AlertCircle
@@ -164,7 +165,10 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                         onClick = {
                             val json = buildMcpServersJson(mcpConfigs)
                             context.writeClipboardText(json)
-                            toaster.show(R.string.setting_mcp_page_export_copied)
+                            toaster.show(
+                                context.getString(R.string.setting_mcp_page_export_copied),
+                                type = ToastType.Success,
+                            )
                         }
                     ) {
                         Icon(HugeIcons.FileDownload, null)
