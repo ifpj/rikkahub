@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.context
 
+import android.net.Uri
 import androidx.compose.runtime.staticCompositionLocalOf
 import java.io.File
 
@@ -34,7 +35,7 @@ fun resolveWorkspaceImageUrl(context: WorkspaceImageContext, rootfsPath: String)
             // 安全检查：确保解析后的规范化路径仍在工作区文件目录内
             if (!file.path.startsWith(context.workspaceFilesDir.canonicalPath)) return null
             if (!file.isFile) return null
-            file.toURI().toString() // "file:///data/data/.../files/..."
+            Uri.fromFile(file).toString() // "file:///data/data/.../files/..." (Android 三斜杠格式，Web UI regex 可匹配)
         }
         else -> null // 非工作区路径，不处理
     }
