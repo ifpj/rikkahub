@@ -75,6 +75,7 @@ import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.ai.ChatInput
 import me.rerere.rikkahub.ui.components.ai.FilesPicker
+import me.rerere.rikkahub.ui.components.ai.InjectionQuickConfigSheet
 import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvider
 import me.rerere.rikkahub.ui.components.ai.useCropLauncher
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
@@ -283,6 +284,7 @@ private fun ChatPageContent(
     val hazeState = rememberHazeState()
     val assistant = setting.getCurrentAssistant()
     var showFilesSheet by remember { mutableStateOf(false) }
+    var showInjectionSheet by remember { mutableStateOf(false) }
 
     val completionProviders = remember(assistant.workspaceId, conversation.workspaceCwd, workspaceRepository) {
         assistant.workspaceId?.let { workspaceId ->
@@ -329,6 +331,12 @@ private fun ChatPageContent(
                     settings = setting,
                     hazeState = hazeState,
                     completionProviders = completionProviders,
+                    mcpManager = vm.mcpManager,
+                    conversation = conversation,
+                    onExtensionsClick = {
+                        showFilesSheet = false
+                        showInjectionSheet = true
+                    },
                     onCancelClick = {
                         vm.stopGeneration()
                     },
@@ -494,6 +502,29 @@ private fun ChatPageContent(
                 assistant = assistant,
                 vm = vm,
                 onDismiss = { showFilesSheet = false },
+            )
+        }
+
+        if (showInjectionSheet) {
+            InjectionQuickConfigSheet(
+                conversation = conversation,
+                assistant = assistant,
+                settings = setting,
+                onUpdateAssistant = {
+                    vm.updateSettings(
+                        setting.copy(
+                            assistants = setting.assistants.map { a ->
+                                if (a.id == it.id) it else a
+                            }
+                        )
+                    )
+                },
+                onUpdateConversation = {
+                    vm.updateConversation(it)
+                    vm.saveConversationAsync()
+                },
+                onDismiss = { showInjectionSheet = false },
+                onDismissAll = { showInjectionSheet = false },
             )
         }
     }
