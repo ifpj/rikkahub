@@ -84,6 +84,8 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Prepare build files
         run: |
@@ -113,6 +115,11 @@ jobs:
           sed -i "s/versionName = \".*\"/versionName = \"$FORK_VERSION\"/" app/build.gradle.kts
           sed -i "s/versionCode = .*/versionCode = $FORK_VC/" app/build.gradle.kts
 
+      - name: Disable R8 and resource shrinking for CI speed
+        run: |
+          sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/' app/build.gradle.kts
+          sed -i 's/isShrinkResources = true/isShrinkResources = false/' app/build.gradle.kts
+
       - name: Fallback to debug signing if no secrets
         if: env.HAS_SIGNING == ''
         env:
@@ -124,7 +131,10 @@ jobs:
       - name: Gradle Build
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease --parallel --build-cache \
+            -x lintVitalAnalyzeRelease \
+            -x lintVitalReportRelease \
+            -x lintVitalRelease
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
