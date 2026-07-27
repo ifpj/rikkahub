@@ -10,6 +10,9 @@ import { cn } from "~/lib/utils";
 import { getCodePreviewLanguage } from "~/components/workbench/code-preview-language";
 import { useOptionalWorkbench } from "~/components/workbench/workbench-context";
 import { useSettingsStore } from "~/stores";
+import { useCurrentAssistant } from "~/hooks/use-current-assistant";
+import { resolveFileUrl } from "~/lib/files";
+import { appendWebAuthQuery } from "~/services/api";
 import { CodeBlock } from "./code-block";
 import "katex/dist/katex.min.css";
 // mhchem 扩展: 支持 \ce{} 等化学公式语法
@@ -87,6 +90,8 @@ export default function Markdown({
   const { t } = useTranslation("markdown");
   const workbench = useOptionalWorkbench();
   const displaySetting = useSettingsStore((state) => state.settings?.displaySetting);
+  const { currentAssistant } = useCurrentAssistant();
+  const workspaceId = currentAssistant?.workspaceId ?? null;
   const processedContent = React.useMemo(() => preProcess(content), [content]);
   const handlePreviewCode = React.useCallback(
     (language: string, code: string) => {
@@ -190,6 +195,27 @@ export default function Markdown({
               <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
                 {children}
               </a>
+            );
+          },
+          img: ({ src, alt, ...props }) => {
+            // Resolve workspace paths: /workspace/xxx.png →
+            // /api/files/path/workspaces/<uuid>/files/xxx.png
+            let resolvedSrc = src || "";
+            if (resolvedSrc.startsWith("/workspace/") && workspaceId) {
+              const relativePath = resolvedSrc.slice("/workspace/".length);
+              resolvedSrc = appendWebAuthQuery(
+                `/api/files/path/workspaces/${workspaceId}/files/${relativePath}`,
+              );
+            } else {
+              resolvedSrc = resolveFileUrl(resolvedSrc);
+            }
+            return (
+              <img
+                src={resolvedSrc}
+                alt={alt || ""}
+                className="my-2 max-w-full rounded-lg"
+                {...props}
+              />
             );
           },
         }}
