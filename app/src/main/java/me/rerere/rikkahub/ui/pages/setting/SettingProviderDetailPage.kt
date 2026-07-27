@@ -447,6 +447,7 @@ private fun ModelList(
         else providerSetting.models.filter { it.modelId !in upstreamModelIds }
     }
     val toaster = LocalToaster.current
+    val context = LocalContext.current
     var expanded by rememberSaveable { mutableStateOf(true) }
     val lazyListState = rememberLazyListState()
     val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
@@ -480,7 +481,7 @@ private fun ModelList(
                             )
                             toaster.show(
                                 type = ToastType.Success,
-                                message = stringResource(
+                                message = context.getString(
                                     R.string.setting_provider_page_stale_cleaned_toast,
                                     staleModels.size
                                 )
@@ -566,7 +567,7 @@ private fun ModelList(
                     )
                     toaster.show(
                         type = ToastType.Success,
-                        message = stringResource(
+                        message = context.getString(
                             R.string.setting_provider_page_sync_result_toast,
                             toAdd.size,
                             toRemove.size
@@ -939,6 +940,7 @@ private fun ModelPicker(
     var syncToAdd by remember { mutableStateOf<List<Model>>(emptyList()) }
     var syncToRemove by remember { mutableStateOf<List<Model>>(emptyList()) }
     val toaster = LocalToaster.current
+    val context = LocalContext.current
     if (showModal) {
         ModalBottomSheet(
             onDismissRequest = { showModal = false },
@@ -995,7 +997,7 @@ private fun ModelPicker(
                                 if (toAdd.isEmpty() && toRemove.isEmpty()) {
                                     toaster.show(
                                         type = ToastType.Info,
-                                        message = stringResource(R.string.setting_provider_page_sync_already)
+                                        message = context.getString(R.string.setting_provider_page_sync_already)
                                     )
                                 } else {
                                     syncToAdd = toAdd
