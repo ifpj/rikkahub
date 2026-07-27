@@ -16,6 +16,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -116,8 +117,11 @@ class ChatVM(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     // 当前模型
-    val currentChatModel = settings.map { settings ->
-        settings.getCurrentChatModel()
+    val currentChatModel = combine(
+        settings,
+        conversation
+    ) { settings, conv ->
+        settings.getCurrentChatModel(conv)
     }.stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     // 错误状态
@@ -179,6 +183,16 @@ class ChatVM(
                         }
                     })
             }
+        }
+    }
+
+    // 设置当前会话的聊天模型（仅在 allowConversationModel 开启时使用）
+    fun setConversationChatModel(conversation: Conversation, model: Model) {
+        viewModelScope.launch {
+            chatService.updateConversationState(_conversationId) {
+                it.copy(chatModelId = model.id)
+            }
+            saveConversationAsync()
         }
     }
 

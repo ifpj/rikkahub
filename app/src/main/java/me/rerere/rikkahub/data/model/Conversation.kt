@@ -29,6 +29,8 @@ data class Conversation(
     val lorebookIds: Set<Uuid> = emptySet(),
     // Absolute path inside the workspace rootfs
     val workspaceCwd: String? = null,
+    // Per-conversation chat model override (only effective when assistant.allowConversationModel == true)
+    val chatModelId: Uuid? = null,
     // 所属文件夹（助手内分组），null 表示未归入任何文件夹
     val folderId: Uuid? = null,
     @Transient

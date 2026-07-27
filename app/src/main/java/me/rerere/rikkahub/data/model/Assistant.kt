@@ -51,6 +51,7 @@ data class Assistant(
     val timeReminderIntervalMinutes: Int = 60,          // 时间提醒间隔（分钟，至少 1 分钟）
     val allowConversationSystemPrompt: Boolean = false, // 允许对话单独重写 system prompt
     val allowConversationPromptInjection: Boolean = false, // 允许对话单独绑定提示词注入
+    val allowConversationModel: Boolean = false, // 允许对话单独选择模型
 )
 
 @Serializable
