@@ -1040,7 +1040,8 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
 private fun buildMcpServersJson(configs: List<McpServerConfig>): String {
     val mcpServersObj = buildJsonObject {
         configs.forEach { config ->
-            put(config.commonOptions.name.ifBlank { config.id.toString() }) {
+            put(
+                config.commonOptions.name.ifBlank { config.id.toString() },
                 buildJsonObject {
                     put("type", when (config) {
                         is McpServerConfig.SseTransportServer -> "sse"
@@ -1051,16 +1052,17 @@ private fun buildMcpServersJson(configs: List<McpServerConfig>): String {
                         is McpServerConfig.StreamableHTTPServer -> config.url
                     })
                     if (config.commonOptions.headers.isNotEmpty()) {
-                        put("headers") {
+                        put(
+                            "headers",
                             buildJsonObject {
                                 config.commonOptions.headers.forEach { (key, value) ->
                                     put(key, value)
                                 }
                             }
-                        }
+                        )
                     }
                 }
-            }
+            )
         }
     }
     val root = buildJsonObject {
