@@ -289,11 +289,12 @@ private fun ChatPageContent(
     var showFilesSheet by remember { mutableStateOf(false) }
     var showInjectionSheet by remember { mutableStateOf(false) }
 
-    val workspaceImageContext = remember(assistant.workspaceId, context.filesDir) {
+    val wsContext = LocalContext.current
+    val workspaceImageContext = remember(assistant.workspaceId) {
         assistant.workspaceId?.let { wsId ->
             WorkspaceImageContext(
                 workspaceId = wsId.toString(),
-                workspaceFilesDir = File(context.filesDir, "workspaces/${wsId}/files"),
+                workspaceFilesDir = File(wsContext.filesDir, "workspaces/${wsId}/files"),
             )
         }
     }
