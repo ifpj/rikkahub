@@ -1,0 +1,112 @@
+name: Fork Build
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Compute fork version
+        id: version
+        run: |
+          # 添加上游 remote 并获取 tags
+          git remote add upstream https://github.com/rikkahub/rikkahub.git || true
+          git fetch upstream --tags --quiet
+
+          # 从上游 master 的 build.gradle.kts 中提取版本号
+          UPSTREAM_VERSION=$(git show upstream/master:app/build.gradle.kts | grep -oP 'versionName\s*=\s*"\K[^"]+')
+          echo "upstream_version=$UPSTREAM_VERSION"
+
+          # 找到上游版本号对应的 tag commit
+          if git rev-parse "$UPSTREAM_VERSION" >/dev/null 2>&1; then
+            BASE_REF="$UPSTREAM_VERSION"
+          else
+            # tag 不存在则用 upstream/master
+            BASE_REF="upstream/master"
+          fi
+
+          # 计算 fork 领先的提交数
+          AHEAD=$(git rev-list --count "$BASE_REF"..HEAD)
+          echo "ahead=$AHEAD"
+
+          # fork 用户名
+          FORK_USER="${{ github.repository_owner }}"
+
+          # 组合版本号: 上游版本-用户名-领先数
+          FORK_VERSION="${UPSTREAM_VERSION}-${FORK_USER}-${AHEAD}"
+          echo "fork_version=$FORK_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Fork version: $FORK_VERSION"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      - name: Install web-ui dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+      - name: Prepare build files
+        run: |
+          echo "${{ secrets.KEY_BASE64 }}" | base64 -d > app/app.key
+          echo "${{ secrets.SIGNING_CONFIG }}" > local.properties
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+
+      - name: Override versionName
+        run: |
+          FORK_VERSION="${{ steps.version.outputs.fork_version }}"
+          sed -i "s/versionName = \".*\"/versionName = \"$FORK_VERSION\"/" app/build.gradle.kts
+
+      - name: Gradle Build
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        if: success()
+        with:
+          tag_name: ${{ steps.version.outputs.fork_version }}
+          name: ${{ steps.version.outputs.fork_version }}
+          prerelease: false
+          make_latest: true
+          body: |
+            Fork 自动构建
+
+            - 上游仓库: [rikkahub/rikkahub](https://github.com/rikkahub/rikkahub)
+            - 版本号: `${{ steps.version.outputs.fork_version }}`
+            - 构建分支: `${{ github.ref_name }}`
+            - 构建 commit: `${{ github.sha }}`
+          files: app/build/outputs/apk/release/*.apk
