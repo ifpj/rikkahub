@@ -21,7 +21,7 @@ import me.rerere.rikkahub.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-private const val API_URL = "https://updates.rikka-ai.com/"
+private const val API_URL = "https://api.github.com/repos/ifpj/rikkahub/releases/latest"
 
 class UpdateChecker(
     private val client: OkHttpClient,
@@ -48,10 +48,23 @@ class UpdateChecker(
                                 "User-Agent",
                                 "RikkaHub ${BuildConfig.VERSION_NAME} #${BuildConfig.VERSION_CODE}"
                             )
+                            .addHeader("Accept", "application/vnd.github+json")
                             .build()
                     ).await()
                     if (response.isSuccessful) {
-                        json.decodeFromString<UpdateInfo>(response.body.string())
+                        val release = json.decodeFromString<GitHubRelease>(response.body.string())
+                        UpdateInfo(
+                            version = release.tagName,
+                            publishedAt = release.publishedAt,
+                            changelog = release.body,
+                            downloads = release.assets.map { asset ->
+                                UpdateDownload(
+                                    name = asset.name,
+                                    url = asset.browserDownloadUrl,
+                                    size = formatFileSize(asset.size)
+                                )
+                            }
+                        )
                     } else {
                         throw Exception("Failed to fetch update info")
                     }
@@ -63,6 +76,11 @@ class UpdateChecker(
     }.catch {
         emit(UiState.Error(it))
     }.flowOn(Dispatchers.IO)
+
+    private fun formatFileSize(bytes: Long): String {
+        val mb = bytes / 1024.0 / 1024.0
+        return "%.1f MB".format(mb)
+    }
 
     fun downloadUpdate(context: Context, download: UpdateDownload) {
         runCatching {
@@ -103,6 +121,21 @@ data class UpdateInfo(
     val publishedAt: String,
     val changelog: String,
     val downloads: List<UpdateDownload>
+)
+
+@Serializable
+private data class GitHubRelease(
+    @kotlinx.serialization.SerialName("tag_name") val tagName: String,
+    @kotlinx.serialization.SerialName("published_at") val publishedAt: String,
+    val body: String,
+    val assets: List<GitHubAsset>
+)
+
+@Serializable
+private data class GitHubAsset(
+    val name: String,
+    @kotlinx.serialization.SerialName("browser_download_url") val browserDownloadUrl: String,
+    val size: Long
 )
 
 /**
