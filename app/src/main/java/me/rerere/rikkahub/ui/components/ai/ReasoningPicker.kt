@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
@@ -37,6 +38,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Idea
 import me.rerere.hugeicons.stroke.Idea01
 import me.rerere.rikkahub.R
@@ -103,10 +105,12 @@ fun ReasoningSettingRow(
         )
     }
 
-    ToggleSurface(
-        checked = reasoningLevel.isEnabled,
+    Surface(
         onClick = { showPicker = true },
         modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
     ) {
         Row(
             modifier = Modifier
@@ -125,11 +129,17 @@ fun ReasoningSettingRow(
                 text = stringResource(R.string.setting_provider_page_reasoning),
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 text = reasoningLevel.label(),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Icon(
+                imageVector = HugeIcons.ArrowRight01,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
             )
         }
     }
