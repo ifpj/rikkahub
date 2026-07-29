@@ -1,6 +1,9 @@
 package me.rerere.rikkahub.ui.pages.chat
 
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
@@ -87,12 +90,19 @@ import me.rerere.rikkahub.service.BackgroundShellStatus
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.ai.BackgroundTasksSheet
 import me.rerere.rikkahub.ui.components.ai.ChatAttachmentPickerActions
+import me.rerere.rikkahub.service.WebServerService
 import me.rerere.rikkahub.ui.components.ai.ChatInput
 import me.rerere.rikkahub.ui.components.ai.ChatTopBarCapsule
 import me.rerere.rikkahub.ui.components.ai.FilesPicker
 import me.rerere.rikkahub.ui.components.ai.SearchMode
 import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvider
 import me.rerere.rikkahub.ui.components.ai.rememberChatAttachmentPickerActions
+import me.rerere.rikkahub.ui.components.ai.useCropLauncher
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionLocalNetwork
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionNotification
+import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.context.Navigator
@@ -101,6 +111,7 @@ import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.utils.base64Decode
 import me.rerere.rikkahub.utils.navigateToChatPage
+import me.rerere.rikkahub.web.WebServerManager
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
@@ -304,7 +315,8 @@ private fun ChatPageContent(
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
     val workspaceRepository: WorkspaceRepository = koinInject()
-
+    val webServerManager: WebServerManager = koinInject()
+    val webServerState by webServerManager.state.collectAsStateWithLifecycle()
     var previewMode by rememberSaveable { mutableStateOf(false) }
     val selectionState = rememberChatSelectionState()
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -318,6 +330,38 @@ private fun ChatPageContent(
     val allowAudioVideoAttachments =
         currentChatModel?.findProvider(setting.providers) is ProviderSetting.Google
 
+    val context = LocalContext.current
+    val webServerPermissionState = rememberPermissionState(
+        permissions = buildSet {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(PermissionNotification)
+            }
+            if (Build.VERSION.SDK_INT >= 37 && !setting.webServerLocalhostOnly) {
+                add(PermissionLocalNetwork)
+            }
+        },
+    )
+    PermissionManager(permissionState = webServerPermissionState)
+    var pendingWebServerStart by remember { mutableStateOf(false) }
+
+    fun startWebServer() {
+        val intent = Intent(context, WebServerService::class.java).apply {
+            action = WebServerService.ACTION_START
+            putExtra(WebServerService.EXTRA_PORT, setting.webServerPort)
+            putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, setting.webServerLocalhostOnly)
+        }
+        context.startForegroundService(intent)
+        if (!setting.webServerTemporaryStart) {
+            vm.updateSettings(setting.copy(webServerEnabled = true))
+        }
+    }
+
+    LaunchedEffect(webServerPermissionState.allPermissionsGranted) {
+        if (pendingWebServerStart && webServerPermissionState.allPermissionsGranted) {
+            pendingWebServerStart = false
+            startWebServer()
+        }
+    }
     val completionProviders = remember(assistant.workspaceId, conversation.workspaceCwd, workspaceRepository) {
         assistant.workspaceId?.let { workspaceId ->
             listOf(
@@ -411,6 +455,28 @@ private fun ChatPageContent(
                     chatModel = currentChatModel,
                     hazeState = hazeState,
                     completionProviders = completionProviders,
+                    mcpManager = vm.mcpManager,
+                    conversation = conversation,
+                    onExtensionsClick = {
+                        showFilesSheet = false
+                        showInjectionSheet = true
+                    },
+                    webServerRunning = webServerState.isRunning,
+                    webServerLoading = webServerState.isLoading,
+                    onWebServerClick = {
+                        if (webServerState.isRunning) {
+                            val intent = Intent(context, WebServerService::class.java).apply {
+                                action = WebServerService.ACTION_STOP
+                            }
+                            context.startService(intent)
+                            vm.updateSettings(setting.copy(webServerEnabled = false))
+                        } else if (webServerPermissionState.allPermissionsGranted) {
+                            startWebServer()
+                        } else {
+                            pendingWebServerStart = true
+                            webServerPermissionState.requestPermissions()
+                        }
+                    },
                     onCancelClick = {
                         vm.stopGeneration()
                     },

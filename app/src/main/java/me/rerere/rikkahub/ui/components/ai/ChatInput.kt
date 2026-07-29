@@ -42,6 +42,7 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.BasicAlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -93,6 +94,8 @@ import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Fullscreen
+import me.rerere.hugeicons.stroke.Package
+import me.rerere.hugeicons.stroke.ServerStack01
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
@@ -131,6 +134,12 @@ fun ChatInput(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
     completionProviders: List<ChatCompletionProvider> = emptyList(),
+    mcpManager: McpManager? = null,
+    conversation: Conversation? = null,
+    onExtensionsClick: (() -> Unit)? = null,
+    webServerRunning: Boolean = false,
+    webServerLoading: Boolean = false,
+    onWebServerClick: (() -> Unit)? = null,
     onUpdateChatModel: (Model) -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
     onMoreClick: () -> Unit,
@@ -322,6 +331,88 @@ fun ChatInput(
                                     onClick = onShowBackgroundTasks,
                                 )
                             }
+                            // MCP
+                            if (mcpManager != null && settings.mcpServers.isNotEmpty()) {
+                                McpPickerButton(
+                                    assistant = assistant,
+                                    servers = settings.mcpServers,
+                                    mcpManager = mcpManager,
+                                    onUpdateAssistant = onUpdateAssistant,
+                                )
+                            }
+
+                            // Extensions
+                            if (onExtensionsClick != null && conversation != null) {
+                                val modeAndLorebookCount =
+                                    if (assistant.allowConversationPromptInjection) {
+                                        conversation.modeInjectionIds.size + conversation.lorebookIds.size
+                                    } else {
+                                        assistant.modeInjectionIds.size + assistant.lorebookIds.size
+                                    }
+                                val activeCount =
+                                    assistant.quickMessageIds.size +
+                                        modeAndLorebookCount +
+                                        assistant.enabledSkills.size
+                                ToggleSurface(
+                                    checked = activeCount > 0,
+                                    onClick = onExtensionsClick,
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        BadgedBox(
+                                            badge = {
+                                                if (activeCount > 0) {
+                                                    Badge(
+                                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                                    ) {
+                                                        Text(text = activeCount.toString())
+                                                    }
+                                                }
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = HugeIcons.Package,
+                                                contentDescription = stringResource(R.string.assistant_page_tab_extensions),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Web Server
+                            if (onWebServerClick != null) {
+                                val webServerContentDescription = when {
+                                    webServerLoading -> stringResource(R.string.notification_web_server_starting)
+                                    webServerRunning -> stringResource(R.string.setting_page_web_server_stop)
+                                    else -> stringResource(R.string.setting_page_web_server_start)
+                                }
+                                ToggleSurface(
+                                    checked = webServerRunning,
+                                    onClick = {
+                                        if (!webServerLoading) onWebServerClick()
+                                    },
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (webServerLoading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp,
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = HugeIcons.ServerStack01,
+                                                contentDescription = webServerContentDescription,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                         }
 
                         ActionIconButton(
