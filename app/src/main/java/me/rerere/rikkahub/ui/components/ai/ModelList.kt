@@ -81,6 +81,7 @@ import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
+import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.Tag
 import me.rerere.rikkahub.ui.components.ui.TagType
@@ -444,6 +445,22 @@ private fun ColumnScope.ModelList(
                 Icon(HugeIcons.Search01, null)
             },
             maxLines = 1,
+        )
+    }
+
+    val selectedModel = settings.value.findModelById(currentModel)
+    if (modelType == ModelType.CHAT && selectedModel?.abilities?.contains(ModelAbility.REASONING) == true) {
+        val currentAssistant = settings.value.getCurrentAssistant()
+        ReasoningSettingRow(
+            reasoningLevel = currentAssistant.reasoningLevel,
+            onUpdateReasoningLevel = { reasoningLevel ->
+                coroutineScope.launch {
+                    settingsStore.updateAssistantReasoningLevel(currentAssistant.id, reasoningLevel)
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
         )
     }
 

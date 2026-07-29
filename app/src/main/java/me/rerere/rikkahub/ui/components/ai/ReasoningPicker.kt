@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -83,6 +84,54 @@ fun ReasoningButton(
                 ReasoningIcon(reasoningLevel)
             }
             if (!onlyIcon) Text(stringResource(R.string.setting_provider_page_reasoning))
+        }
+    }
+}
+
+@Composable
+fun ReasoningSettingRow(
+    modifier: Modifier = Modifier,
+    reasoningLevel: ReasoningLevel,
+    onUpdateReasoningLevel: (ReasoningLevel) -> Unit,
+) {
+    var showPicker by remember { mutableStateOf(false) }
+
+    if (showPicker) {
+        ReasoningPicker(
+            reasoningLevel = reasoningLevel,
+            onDismissRequest = { showPicker = false },
+            onUpdateReasoningLevel = onUpdateReasoningLevel,
+        )
+    }
+
+    ToggleSurface(
+        checked = reasoningLevel.isEnabled,
+        onClick = { showPicker = true },
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                ReasoningIcon(reasoningLevel)
+            }
+            Text(
+                text = stringResource(R.string.setting_provider_page_reasoning),
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = reasoningLevel.label(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
