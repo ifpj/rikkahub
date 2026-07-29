@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.ui.pages.chat
 
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -74,13 +76,16 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.service.ChatError
+import me.rerere.rikkahub.service.WebServerService
 import me.rerere.rikkahub.ui.components.ai.ChatInput
 import me.rerere.rikkahub.ui.components.ai.FilesPicker
 import me.rerere.rikkahub.ui.components.ai.InjectionQuickConfigSheet
 import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvider
 import me.rerere.rikkahub.ui.components.ai.useCropLauncher
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionLocalNetwork
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionNotification
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -94,6 +99,7 @@ import me.rerere.rikkahub.utils.ImageUtils
 import me.rerere.rikkahub.utils.base64Decode
 import me.rerere.rikkahub.utils.isAllowedFileType
 import me.rerere.rikkahub.utils.navigateToChatPage
+import me.rerere.rikkahub.web.WebServerManager
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
@@ -283,18 +289,51 @@ private fun ChatPageContent(
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
     val workspaceRepository: WorkspaceRepository = koinInject()
+    val webServerManager: WebServerManager = koinInject()
+    val webServerState by webServerManager.state.collectAsStateWithLifecycle()
     var previewMode by rememberSaveable { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     val assistant = setting.getCurrentAssistant()
     var showFilesSheet by remember { mutableStateOf(false) }
     var showInjectionSheet by remember { mutableStateOf(false) }
 
-    val wsContext = LocalContext.current
+    val context = LocalContext.current
+    val webServerPermissionState = rememberPermissionState(
+        permissions = buildSet {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(PermissionNotification)
+            }
+            if (Build.VERSION.SDK_INT >= 37 && !setting.webServerLocalhostOnly) {
+                add(PermissionLocalNetwork)
+            }
+        },
+    )
+    PermissionManager(permissionState = webServerPermissionState)
+    var pendingWebServerStart by remember { mutableStateOf(false) }
+
+    fun startWebServer() {
+        val intent = Intent(context, WebServerService::class.java).apply {
+            action = WebServerService.ACTION_START
+            putExtra(WebServerService.EXTRA_PORT, setting.webServerPort)
+            putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, setting.webServerLocalhostOnly)
+        }
+        context.startForegroundService(intent)
+        if (!setting.webServerTemporaryStart) {
+            vm.updateSettings(setting.copy(webServerEnabled = true))
+        }
+    }
+
+    LaunchedEffect(webServerPermissionState.allPermissionsGranted) {
+        if (pendingWebServerStart && webServerPermissionState.allPermissionsGranted) {
+            pendingWebServerStart = false
+            startWebServer()
+        }
+    }
     val workspaceImageContext = remember(assistant.workspaceId) {
         assistant.workspaceId?.let { wsId ->
             WorkspaceImageContext(
                 workspaceId = wsId.toString(),
-                workspaceFilesDir = File(wsContext.filesDir, "workspaces/${wsId}/files"),
+                workspaceFilesDir = File(context.filesDir, "workspaces/${wsId}/files"),
             )
         }
     }
@@ -349,6 +388,22 @@ private fun ChatPageContent(
                     onExtensionsClick = {
                         showFilesSheet = false
                         showInjectionSheet = true
+                    },
+                    webServerRunning = webServerState.isRunning,
+                    webServerLoading = webServerState.isLoading,
+                    onWebServerClick = {
+                        if (webServerState.isRunning) {
+                            val intent = Intent(context, WebServerService::class.java).apply {
+                                action = WebServerService.ACTION_STOP
+                            }
+                            context.startService(intent)
+                            vm.updateSettings(setting.copy(webServerEnabled = false))
+                        } else if (webServerPermissionState.allPermissionsGranted) {
+                            startWebServer()
+                        } else {
+                            pendingWebServerStart = true
+                            webServerPermissionState.requestPermissions()
+                        }
                     },
                     onCancelClick = {
                         vm.stopGeneration()
