@@ -102,7 +102,6 @@ fun SettingWebPage() {
     PermissionManager(permissionState = permissionState)
 
     var pendingStart by remember { mutableStateOf(false) }
-    var temporaryStart by remember { mutableStateOf(false) }
 
     fun startWebServer() {
         val intent = Intent(context, WebServerService::class.java).apply {
@@ -111,7 +110,7 @@ fun SettingWebPage() {
             putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, settings.webServerLocalhostOnly)
         }
         context.startForegroundService(intent)
-        if (!temporaryStart) {
+        if (!settings.webServerTemporaryStart) {
             scope.launch {
                 settingsStore.update { it.copy(webServerEnabled = true) }
             }
@@ -256,8 +255,14 @@ fun SettingWebPage() {
                         supportingContent = { Text("仅本次启动，下次打开应用时不会自动启动") },
                         trailingContent = {
                             Switch(
-                                checked = temporaryStart,
-                                onCheckedChange = { temporaryStart = it },
+                                checked = settings.webServerTemporaryStart,
+                                onCheckedChange = { checked ->
+                                    scope.launch {
+                                        settingsStore.update {
+                                            it.copy(webServerTemporaryStart = checked)
+                                        }
+                                    }
+                                },
                                 enabled = !serverState.isRunning,
                             )
                         },
