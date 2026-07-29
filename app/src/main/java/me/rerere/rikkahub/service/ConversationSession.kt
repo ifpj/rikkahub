@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import me.rerere.rikkahub.data.model.Conversation
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.uuid.Uuid
@@ -23,6 +25,11 @@ class ConversationSession(
 ) {
     // 会话状态
     val state = MutableStateFlow(initial)
+
+    // A live session must not be hydrated from the database more than once. Re-hydrating while
+    // generation is running would replace the in-memory streaming response with the stale persisted state.
+    private val initializationMutex = Mutex()
+    private var initialized = false
 
     // 原子引用计数
     private val refCount = AtomicInteger(0)
@@ -81,6 +88,14 @@ class ConversationSession(
     }
 
     fun getJob(): Job? = _generationJob.value
+
+    suspend fun initializeOnce(block: suspend () -> Unit) {
+        initializationMutex.withLock {
+            if (initialized) return
+            block()
+            initialized = true
+        }
+    }
 
     private fun scheduleIdleCheck() {
         idleCheckJob?.cancel()
