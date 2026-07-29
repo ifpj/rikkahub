@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -620,7 +621,7 @@ class ChatService(
         }
         val useExternalWebSearch = shouldUseExternalWebSearch(assistant, model)
 
-        runCatching {
+        val generationResult = runCatching {
 
             // reset suggestions
             updateConversation(conversationId, initialConversation.copy(chatSuggestions = emptyList()))
@@ -724,7 +725,16 @@ class ChatService(
                     }
                 }
             }
-        }.onFailure {
+        }
+
+        // Streaming updates live in the session until generation ends. Persist the latest snapshot for
+        // successful completion, provider failures, and cancellation alike. Cancellation requires a
+        // non-cancellable context, otherwise the database write is skipped immediately.
+        withContext(NonCancellable) {
+            saveConversation(conversationId, getConversationFlow(conversationId).value)
+        }
+
+        generationResult.onFailure {
             // 兜底取消 Live Update 通知（生成开始前失败时 onCompletion 不会执行）
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
             if (it is CancellationException) throw it
