@@ -7,10 +7,12 @@ import io.ktor.server.engine.EmbeddedServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.FilesManager
@@ -117,14 +119,32 @@ class WebServerManager(
         appScope.launch {
             try {
                 Log.i(TAG, "Stopping web server")
-                server?.stop(1000, 2000)
-                server = null
-                runCatching {
-                    nsdRegistrar.unregister()
+                val serverToStop = server
+                val (serverResult, nsdResult) = supervisorScope {
+                    val stopServer = async(Dispatchers.IO) {
+                        runCatching {
+                            serverToStop?.stop(1000, 2000)
+                        }
+                    }
+                    val unregisterNsd = async(Dispatchers.IO) {
+                        runCatching {
+                            nsdRegistrar.unregister()
+                        }
+                    }
+                    stopServer.await() to unregisterNsd.await()
+                }
+
+                serverResult.onSuccess {
+                    server = null
                 }.onFailure {
+                    Log.w(TAG, "Web server stop failed", it)
+                }
+                nsdResult.onFailure {
                     Log.w(TAG, "NSD unregister failed", it)
                 }
-                _state.value = _state.value.copy(isLoading = false)
+
+                val shutdownError = serverResult.exceptionOrNull() ?: nsdResult.exceptionOrNull()
+                _state.value = _state.value.copy(isLoading = false, error = shutdownError?.message)
                 Log.i(TAG, "Web server stopped")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to stop web server", e)
