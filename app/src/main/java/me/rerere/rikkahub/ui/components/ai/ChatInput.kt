@@ -91,6 +91,7 @@ import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.FullScreen
+import me.rerere.hugeicons.stroke.McpServer
 import me.rerere.hugeicons.stroke.Package
 import me.rerere.hugeicons.stroke.ServerStack01
 import me.rerere.hugeicons.stroke.Zap
@@ -304,13 +305,30 @@ fun ChatInput(
                             )
 
                             // MCP
-                            if (mcpManager != null && settings.mcpServers.isNotEmpty()) {
-                                McpPickerButton(
-                                    assistant = assistant,
-                                    servers = settings.mcpServers,
-                                    mcpManager = mcpManager,
-                                    onUpdateAssistant = onUpdateAssistant,
-                                )
+                            if (mcpManager != null) {
+                                if (settings.init) {
+                                    ToggleSurface(
+                                        checked = false,
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                imageVector = HugeIcons.McpServer,
+                                                contentDescription = stringResource(R.string.mcp_picker_title),
+                                                modifier = Modifier.size(24.dp),
+                                            )
+                                        }
+                                    }
+                                } else if (settings.mcpServers.isNotEmpty()) {
+                                    McpPickerButton(
+                                        assistant = assistant,
+                                        servers = settings.mcpServers,
+                                        mcpManager = mcpManager,
+                                        onUpdateAssistant = onUpdateAssistant,
+                                    )
+                                }
                             }
 
                             // Extensions
