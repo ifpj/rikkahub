@@ -11,7 +11,7 @@ import { usePickerPopover } from "~/hooks/use-picker-popover";
 import { extractErrorMessage } from "~/lib/error";
 import { cn } from "~/lib/utils";
 import api from "~/services/api";
-import type { BuiltInTool, ProviderModel, SearchServiceOption } from "~/types";
+import type { BuiltInTool, ProviderModel, ProviderProfile, SearchServiceOption } from "~/types";
 import { AIIcon } from "~/components/ui/ai-icon";
 import { Button } from "~/components/ui/button";
 import {
@@ -84,6 +84,26 @@ function isGeminiModel(model: ProviderModel | null): boolean {
   return model.modelId.toLowerCase().includes("gemini");
 }
 
+function supportsBuiltInSearch(
+  model: ProviderModel | null,
+  provider: ProviderProfile | null,
+): boolean {
+  if (!model) {
+    return false;
+  }
+
+  if (isGeminiModel(model)) {
+    return true;
+  }
+
+  const effectiveProvider = model.providerOverwrite ?? provider;
+  return (
+    model.modelId.toLowerCase().includes("gpt-") &&
+    effectiveProvider?.type?.toLowerCase() === "openai" &&
+    effectiveProvider.useResponseApi === true
+  );
+}
+
 function getServiceType(service: SearchServiceOption): string | null {
   if (typeof service.type !== "string") {
     return null;
@@ -105,12 +125,14 @@ function getServiceLabel(service: SearchServiceOption, t: TFunction): string {
 export function SearchPickerButton({ disabled = false, className }: SearchPickerButtonProps) {
   const { t } = useTranslation("input");
   const { settings, currentAssistant } = useCurrentAssistant();
-  const { currentModel } = useCurrentModel();
+  const { currentModel, currentProvider } = useCurrentModel();
 
   const canUse = Boolean(settings && currentAssistant && !disabled);
   const { error, setError, popoverProps } = usePickerPopover(canUse);
 
   const builtInSearchEnabled = hasBuiltInSearch(currentModel?.tools);
+  const canUseBuiltInSearch =
+    supportsBuiltInSearch(currentModel, currentProvider) || builtInSearchEnabled;
   const searchEnabled = currentAssistant?.enableWebSearch ?? false;
   const currentService = settings?.searchServices?.[settings.searchServiceSelected] ?? null;
   const checked = searchEnabled || builtInSearchEnabled;
@@ -176,6 +198,18 @@ export function SearchPickerButton({ disabled = false, className }: SearchPicker
         >
           {toggleSearchEnabledMutation.isPending || toggleBuiltInSearchMutation.isPending ? (
             <LoaderCircle className="size-4 animate-spin" />
+          ) : builtInSearchEnabled && searchEnabled && currentService ? (
+            <span className="relative size-5">
+              <Search className="absolute left-0 top-0 size-3.5" />
+              <AIIcon
+                name={getServiceLabel(currentService, t)}
+                size={12}
+                className="absolute bottom-0 right-0 bg-background"
+                imageClassName="h-full w-full"
+              />
+            </span>
+          ) : builtInSearchEnabled ? (
+            <Search className="size-4" />
           ) : searchEnabled && currentService ? (
             <AIIcon
               name={getServiceLabel(currentService, t)}
@@ -183,8 +217,6 @@ export function SearchPickerButton({ disabled = false, className }: SearchPicker
               className="bg-transparent"
               imageClassName="h-full w-full"
             />
-          ) : builtInSearchEnabled ? (
-            <Search className="size-4" />
           ) : (
             <Earth className="size-4" />
           )}
@@ -203,7 +235,7 @@ export function SearchPickerButton({ disabled = false, className }: SearchPicker
         <div className="space-y-4 px-4 py-4">
           <PickerErrorAlert error={error} />
 
-          {isGeminiModel(currentModel) ? (
+          {canUseBuiltInSearch ? (
             <div className="flex items-center gap-3 rounded-lg border px-3 py-3">
               <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
                 <Search className="size-4" />
@@ -217,89 +249,84 @@ export function SearchPickerButton({ disabled = false, className }: SearchPicker
                 disabled={disabled || loading}
                 onCheckedChange={(nextChecked) => {
                   if (!canUse || !currentModel) return;
-                  toggleBuiltInSearchMutation.mutate({ modelId: currentModel.id, enabled: nextChecked });
+                  toggleBuiltInSearchMutation.mutate({
+                    modelId: currentModel.id,
+                    enabled: nextChecked,
+                  });
                 }}
               />
             </div>
           ) : null}
 
-          {!builtInSearchEnabled ? (
-            <>
-              <div className="flex items-center gap-3 rounded-lg border px-3 py-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
-                  <Earth className="size-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium">{t("search.web_title")}</div>
-                  <div className="text-muted-foreground text-xs">
-                    {searchEnabled ? t("search.status_enabled") : t("search.status_disabled")}
-                  </div>
-                </div>
-                <Switch
-                  checked={searchEnabled}
-                  disabled={disabled || loading}
-                  onCheckedChange={(nextChecked) => {
-                    if (!canUse) return;
-                    toggleSearchEnabledMutation.mutate({ enabled: nextChecked });
-                  }}
-                />
-              </div>
-
-              <ScrollArea className="h-[16rem] pr-3">
-                {settings?.searchServices?.length ? (
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {settings.searchServices.map((service, index) => {
-                      const selected = index === settings.searchServiceSelected;
-                      const switching =
-                        selectServiceMutation.isPending &&
-                        selectServiceMutation.variables?.index === index;
-
-                      return (
-                        <button
-                          key={service.id}
-                          type="button"
-                          className={cn(
-                            "hover:bg-muted flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition",
-                            selected && "border-primary bg-primary/5",
-                          )}
-                          disabled={disabled || loading}
-                          onClick={() => {
-                            if (!canUse || !settings || index === settings.searchServiceSelected)
-                              return;
-                            selectServiceMutation.mutate({ index });
-                          }}
-                        >
-                          <AIIcon
-                            name={getServiceLabel(service, t)}
-                            size={20}
-                            className="bg-transparent"
-                            imageClassName="h-full w-full"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium">
-                              {getServiceLabel(service, t)}
-                            </div>
-                            <div className="text-muted-foreground truncate text-xs">
-                              {getServiceType(service) ?? t("search.unknown")}
-                            </div>
-                          </div>
-                          {switching ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">
-                    {t("search.empty")}
-                  </div>
-                )}
-              </ScrollArea>
-            </>
-          ) : (
-            <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
-              {t("search.builtin_notice")}
+          <div className="flex items-center gap-3 rounded-lg border px-3 py-3">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
+              <Earth className="size-4" />
             </div>
-          )}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">{t("search.web_title")}</div>
+              <div className="text-muted-foreground text-xs">
+                {searchEnabled ? t("search.status_enabled") : t("search.status_disabled")}
+              </div>
+            </div>
+            <Switch
+              checked={searchEnabled}
+              disabled={disabled || loading}
+              onCheckedChange={(nextChecked) => {
+                if (!canUse) return;
+                toggleSearchEnabledMutation.mutate({ enabled: nextChecked });
+              }}
+            />
+          </div>
+
+          <ScrollArea className="h-[16rem] pr-3">
+            {settings?.searchServices?.length ? (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {settings.searchServices.map((service, index) => {
+                  const selected = index === settings.searchServiceSelected;
+                  const switching =
+                    selectServiceMutation.isPending &&
+                    selectServiceMutation.variables?.index === index;
+
+                  return (
+                    <button
+                      key={service.id}
+                      type="button"
+                      className={cn(
+                        "hover:bg-muted flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition",
+                        selected && "border-primary bg-primary/5",
+                      )}
+                      disabled={disabled || loading}
+                      onClick={() => {
+                        if (!canUse || !settings || index === settings.searchServiceSelected)
+                          return;
+                        selectServiceMutation.mutate({ index });
+                      }}
+                    >
+                      <AIIcon
+                        name={getServiceLabel(service, t)}
+                        size={20}
+                        className="bg-transparent"
+                        imageClassName="h-full w-full"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">
+                          {getServiceLabel(service, t)}
+                        </div>
+                        <div className="text-muted-foreground truncate text-xs">
+                          {getServiceType(service) ?? t("search.unknown")}
+                        </div>
+                      </div>
+                      {switching ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">
+                {t("search.empty")}
+              </div>
+            )}
+          </ScrollArea>
         </div>
       </PopoverContent>
     </Popover>

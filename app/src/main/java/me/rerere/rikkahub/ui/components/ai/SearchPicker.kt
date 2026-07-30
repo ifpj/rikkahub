@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.GlobalSearch
@@ -49,6 +50,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.ToggleSurface
 import me.rerere.rikkahub.ui.context.LocalNavController
@@ -86,7 +88,23 @@ fun SearchPickerButton(
                 modifier = Modifier.size(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (model?.tools?.contains(BuiltInTools.Search) == true) {
+                val builtInSearchEnabled = model?.tools?.contains(BuiltInTools.Search) == true
+                if (builtInSearchEnabled && enableSearch && currentService != null) {
+                    Icon(
+                        imageVector = HugeIcons.AiSearch02,
+                        contentDescription = stringResource(R.string.use_web_search),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .size(18.dp),
+                    )
+                    AutoAIIcon(
+                        name = currentService.displayName,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(14.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                    )
+                } else if (builtInSearchEnabled) {
                     Icon(
                         imageVector = HugeIcons.AiSearch02,
                         contentDescription = stringResource(R.string.use_web_search),
@@ -158,9 +176,13 @@ private fun SearchPicker(
 ) {
     val navBackStack = LocalNavController.current
 
-    // 模型是否支持内置搜索
-    val supportsBuiltInSearch = model != null &&
-        (ModelRegistry.GEMINI_SERIES.match(model.modelId) || model.modelId.contains("gpt-"))
+    val provider = model?.findProvider(settings.providers)
+    // OpenAI 的内置搜索通过 Responses API 发送；Gemini 使用原生搜索工具。
+    val supportsBuiltInSearch = model != null && (
+        ModelRegistry.GEMINI_SERIES.match(model.modelId) ||
+            (model.modelId.contains("gpt-", ignoreCase = true) &&
+                provider is ProviderSetting.OpenAI && provider.useResponseApi)
+    )
     // 模型是否已开启内置搜索（可能是不支持的模型残留的孤儿状态）
     val hasBuiltInSearchEnabled = model?.tools?.contains(BuiltInTools.Search) == true
 
@@ -169,18 +191,16 @@ private fun SearchPicker(
         BuiltInSearchSetting(model = model)
     }
 
-    // 如果没有开启内置搜索，显示搜索服务选择
-    if (!hasBuiltInSearchEnabled) {
-        AppSearchSettings(
-            enableSearch = enableSearch,
-            onDismiss = onDismiss,
-            navBackStack = navBackStack,
-            onToggleSearch = onToggleSearch,
-            modifier = modifier,
-            settings = settings,
-            onUpdateSearchService = onUpdateSearchService
-        )
-    }
+    // 内置搜索和应用搜索会作为独立工具发送，可以同时启用。
+    AppSearchSettings(
+        enableSearch = enableSearch,
+        onDismiss = onDismiss,
+        navBackStack = navBackStack,
+        onToggleSearch = onToggleSearch,
+        modifier = modifier,
+        settings = settings,
+        onUpdateSearchService = onUpdateSearchService
+    )
 }
 
 @Composable
