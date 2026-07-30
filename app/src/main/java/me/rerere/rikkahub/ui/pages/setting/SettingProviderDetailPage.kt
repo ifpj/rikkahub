@@ -151,14 +151,35 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
 
     val onEdit = { newProvider: ProviderSetting ->
         vm.updateSettings { latest ->
+            val updatedProviders = latest.providers.map {
+                if (newProvider.id == it.id) newProvider else it
+            }
+            val models = updatedProviders.flatMap { it.models }
+            val validModelIds = models.mapTo(mutableSetOf()) { it.id }
+            val fallbackChatModelId = models.firstOrNull { it.type == ModelType.CHAT }?.id
+            val fallbackImageModelId = models.firstOrNull { it.type == ModelType.IMAGE }?.id
+
+            fun Uuid.keepOr(fallback: Uuid?): Uuid =
+                if (this in validModelIds || fallback == null) this else fallback
+
             latest.copy(
-                providers = latest.providers.map {
-                    if (newProvider.id == it.id) {
-                        newProvider
+                providers = updatedProviders,
+                favoriteModels = latest.favoriteModels.filter { it in validModelIds },
+                chatModelId = latest.chatModelId.keepOr(fallbackChatModelId),
+                fastModelId = latest.fastModelId.keepOr(fallbackChatModelId),
+                titleModelId = latest.titleModelId?.takeIf { it in validModelIds },
+                imageGenerationModelId = latest.imageGenerationModelId.keepOr(fallbackImageModelId),
+                translateModeId = latest.translateModeId.keepOr(fallbackChatModelId),
+                suggestionModelId = latest.suggestionModelId?.takeIf { it in validModelIds },
+                ocrModelId = latest.ocrModelId.keepOr(fallbackChatModelId),
+                compressModelId = latest.compressModelId.keepOr(fallbackChatModelId),
+                assistants = latest.assistants.map { assistant ->
+                    if (assistant.chatModelId != null && assistant.chatModelId !in validModelIds) {
+                        assistant.copy(chatModelId = null)
                     } else {
-                        it
+                        assistant
                     }
-                }
+                },
             )
         }
     }
@@ -988,12 +1009,12 @@ private fun ModelPicker(
                         // Sync 按钮
                         TextButton(
                             onClick = {
-                                val toAdd = filteredModels.filter { model ->
+                                val toAdd = models.filter { model ->
                                     selectedModels.none { it.modelId == model.modelId }
                                 }
-                                val filteredModelIds = filteredModels.map { it.modelId }.toSet()
+                                val upstreamModelIds = models.map { it.modelId }.toSet()
                                 val toRemove = selectedModels.filter { model ->
-                                    model.modelId !in filteredModelIds
+                                    model.modelId !in upstreamModelIds
                                 }
                                 if (toAdd.isEmpty() && toRemove.isEmpty()) {
                                     toaster.show(

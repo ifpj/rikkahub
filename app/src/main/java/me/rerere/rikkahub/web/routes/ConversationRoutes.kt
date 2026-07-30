@@ -40,6 +40,7 @@ import me.rerere.rikkahub.web.dto.ToolApprovalRequest
 import me.rerere.rikkahub.web.dto.MessageSearchResultDto
 import me.rerere.rikkahub.web.dto.UpdateConversationConfigRequest
 import me.rerere.rikkahub.web.dto.UpdateConversationInjectionsRequest
+import me.rerere.rikkahub.web.dto.UpdateConversationModelRequest
 import me.rerere.rikkahub.web.dto.UpdateConversationTitleRequest
 import me.rerere.rikkahub.web.dto.toDto
 import me.rerere.rikkahub.web.dto.toListDto
@@ -256,6 +257,29 @@ fun Route.conversationRoutes(
 
             val isGenerating = chatService.getGenerationJobStateFlow(uuid).first() != null
             call.respond(HttpStatusCode.OK, chatService.getConversationFlow(uuid).first().toDto(isGenerating))
+        }
+
+        // POST /api/conversations/{id}/model - Update the conversation-scoped chat model
+        post("/{id}/model") {
+            val uuid = call.parameters["id"].toUuid("conversation id")
+            val request = call.receive<UpdateConversationModelRequest>()
+            val modelId = request.modelId.toUuid("modelId")
+            val conversation = conversationRepo.getConversationById(uuid)
+                ?: throw NotFoundException("Conversation not found")
+            val settings = settingsStore.settingsFlow.first()
+            val assistant = settings.assistants.firstOrNull { it.id == conversation.assistantId }
+                ?: throw NotFoundException("Assistant not found")
+            if (!assistant.allowConversationModel) {
+                throw BadRequestException("Conversation model selection is not enabled for this assistant")
+            }
+            val model = settings.findModelById(modelId)
+                ?: throw NotFoundException("Model not found")
+            if (model.type != ModelType.CHAT) {
+                throw BadRequestException("modelId must be a chat model")
+            }
+
+            chatService.saveConversation(uuid, conversation.copy(chatModelId = modelId))
+            call.respond(HttpStatusCode.OK, mapOf("status" to "updated"))
         }
 
         // POST /api/conversations/{id}/move - Move conversation to another assistant

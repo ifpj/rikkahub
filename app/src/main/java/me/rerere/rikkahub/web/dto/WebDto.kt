@@ -73,6 +73,11 @@ data class UpdateConversationConfigRequest(
 )
 
 @Serializable
+data class UpdateConversationModelRequest(
+    val modelId: String,
+)
+
+@Serializable
 data class CreateFolderRequest(
     val name: String
 )
@@ -204,6 +209,7 @@ data class ConversationDto(
     val lorebookIds: List<String> = emptyList(),
     val config: ConversationConfig? = null,
     val workspaceCwd: String? = null,
+    val chatModelId: String? = null,
     val folderId: String? = null,
     val createAt: Long,
     val updateAt: Long,
@@ -348,6 +354,7 @@ fun Conversation.toDto(isGenerating: Boolean = false) = ConversationDto(
     lorebookIds = lorebookIds.map { it.toString() },
     config = config,
     workspaceCwd = workspaceCwd,
+    chatModelId = chatModelId?.toString(),
     folderId = folderId?.toString(),
     createAt = createAt.toEpochMilli(),
     updateAt = updateAt.toEpochMilli(),
