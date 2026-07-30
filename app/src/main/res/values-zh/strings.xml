@@ -747,6 +747,13 @@
   <string name="setting_mcp_page_delete_header">删除请求头</string>
   <string name="setting_mcp_page_enable">启用</string>
   <string name="setting_mcp_page_enable_desc">是否启用此MCP服务器</string>
+  <string name="setting_mcp_page_disable_tool_prefix">关闭工具名称前缀</string>
+  <string name="setting_mcp_page_disable_tool_prefix_desc">直接向模型提供 MCP 原始工具名称；名称重复时工具将无法运行。</string>
+  <string name="setting_mcp_page_prefix_conflict_title">工具名称重复</string>
+  <string name="setting_mcp_page_prefix_conflict_desc">关闭前缀后将产生重复工具名称：%1$s。除非准备禁用冲突工具，否则建议保留前缀。</string>
+  <string name="setting_mcp_page_prefix_conflict_disable_anyway">仍然关闭</string>
+  <string name="setting_mcp_page_prefix_conflict_keep_prefix">保留前缀</string>
+  <string name="error_mcp_duplicate_tool_names">检测到重复工具名称：%1$s。请启用 MCP 工具名称前缀或禁用冲突工具。</string>
   <string name="setting_mcp_page_export_copied">MCP 配置已复制到剪贴板</string>
   <string name="setting_mcp_page_header_name">请求头名称</string>
   <string name="setting_mcp_page_header_name_placeholder">例如：Authorization</string>
