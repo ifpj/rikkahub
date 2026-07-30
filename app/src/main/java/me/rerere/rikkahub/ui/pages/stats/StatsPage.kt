@@ -4,7 +4,6 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ChartColumn
 import me.rerere.hugeicons.stroke.Cpu
 import me.rerere.hugeicons.stroke.Message01
-import me.rerere.hugeicons.stroke.Rocket01
 import me.rerere.hugeicons.stroke.Zap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -321,12 +320,6 @@ private fun StatsGrid(stats: AppStats, modifier: Modifier = Modifier) {
                 value = formatTokens(stats.totalCachedTokens),
             )
         }
-        StatCard(
-            modifier = Modifier.fillMaxWidth(),
-            icon = HugeIcons.Rocket01,
-            label = stringResource(R.string.stats_page_launch_count),
-            value = formatCount(stats.launchCount.toLong()),
-        )
     }
 }
 

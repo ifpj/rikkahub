@@ -13,7 +13,6 @@ import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
 import me.rerere.rikkahub.data.db.dao.getMessageCountPerDay
 import me.rerere.rikkahub.data.db.dao.getTokenStats
-import me.rerere.rikkahub.data.datastore.SettingsStore
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
@@ -26,13 +25,11 @@ data class AppStats(
     val totalCompletionTokens: Long = 0L,
     val totalCachedTokens: Long = 0L,
     val conversationsPerDay: Map<LocalDate, Int> = emptyMap(),
-    val launchCount: Int = 0,
 )
 
 class StatsVM(
     private val conversationDAO: ConversationDAO,
     private val messageNodeDAO: MessageNodeDAO,
-    private val settingsStore: SettingsStore,
 ) : ViewModel() {
 
     private val _stats = MutableStateFlow(AppStats())
@@ -68,8 +65,6 @@ class StatsVM(
         // json_each() + json_extract() 在 SQLite 侧聚合，不再加载完整 JSON 到 Kotlin
         val tokenStats = messageNodeDAO.getTokenStats()
 
-        val launchCount = settingsStore.launchCountFlow.first()
-
         _stats.value = AppStats(
             isLoading = false,
             totalConversations = totalConversations,
@@ -78,7 +73,6 @@ class StatsVM(
             totalCompletionTokens = tokenStats.completionTokens,
             totalCachedTokens = tokenStats.cachedTokens,
             conversationsPerDay = conversationsPerDay,
-            launchCount = launchCount,
         )
     }
 }

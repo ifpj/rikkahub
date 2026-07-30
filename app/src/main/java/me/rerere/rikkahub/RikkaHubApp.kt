@@ -112,9 +112,6 @@ class RikkaHubApp : Application() {
         resumeMediaCreations()
         resumeMemoryConsolidation()
 
-        // Increment launch count
-        incrementLaunchCount()
-
         // Composer.setDiagnosticStackTraceMode(ComposeStackTraceMode.Auto)
     }
 
@@ -140,17 +137,6 @@ class RikkaHubApp : Application() {
                 get<MemoryConsolidationScheduler>().resumePending()
             }.onFailure {
                 Log.e(TAG, "resumeMemoryConsolidation failed", it)
-            }
-        }
-    }
-
-    private fun incrementLaunchCount() {
-        get<AppScope>().launch {
-            runCatching {
-                val count = get<SettingsStore>().incrementLaunchCount()
-                Log.i(TAG, "incrementLaunchCount: $count")
-            }.onFailure {
-                Log.e(TAG, "incrementLaunchCount failed", it)
             }
         }
     }
