@@ -325,7 +325,10 @@ class ChatService(
 
     // ---- 初始化对话 ----
 
-    suspend fun initializeConversation(conversationId: Uuid) {
+    suspend fun initializeConversation(
+        conversationId: Uuid,
+        selectionTarget: AssistantSelectionTarget = AssistantSelectionTarget.APP,
+    ) {
         val session = getOrCreateSession(conversationId)
         session.initializeOnce {
             val conversation = conversationRepo.getConversationById(conversationId)
@@ -333,7 +336,10 @@ class ChatService(
                 updateConversation(conversationId, conversation)
             } else {
                 // 新建对话, 并添加预设消息
-                val currentSettings = settingsStore.settingsFlowRaw.first()
+                val currentSettings = when (selectionTarget) {
+                    AssistantSelectionTarget.APP -> settingsStore.settingsFlow.first()
+                    AssistantSelectionTarget.WEB -> settingsStore.webSettingsFlow.first()
+                }
                 val assistant = currentSettings.getCurrentAssistant()
                 val newConversation = Conversation.ofId(
                     id = conversationId,
@@ -343,7 +349,10 @@ class ChatService(
                 updateConversation(conversationId, newConversation)
             }
         }
-        settingsStore.updateAssistant(session.state.value.assistantId)
+        when (selectionTarget) {
+            AssistantSelectionTarget.APP -> settingsStore.updateAssistant(session.state.value.assistantId)
+            AssistantSelectionTarget.WEB -> settingsStore.updateWebAssistant(session.state.value.assistantId)
+        }
     }
 
     // ---- 发送消息 ----
@@ -1365,4 +1374,9 @@ class ChatService(
         runCatching { job.join() }
         finishInterruptedPendingTools(conversationId)
     }
+}
+
+enum class AssistantSelectionTarget {
+    APP,
+    WEB,
 }

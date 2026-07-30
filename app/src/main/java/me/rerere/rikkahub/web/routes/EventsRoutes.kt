@@ -42,12 +42,12 @@ fun Route.eventsRoutes(
         }
 
         // Full settings snapshot; StateFlow emits the current value immediately on connect.
-        val settingsEvents = settingsStore.settingsFlow.map { settings ->
+        val settingsEvents = settingsStore.webSettingsFlow.map { settings ->
             EventPayload(event = "settings", json = JsonInstant.encodeToString(settings))
         }
 
         // Conversation list invalidation, scoped to the currently selected assistant.
-        val conversationListEvents = settingsStore.settingsFlow
+        val conversationListEvents = settingsStore.webSettingsFlow
             .map { it.assistantId }
             .distinctUntilChanged()
             .flatMapLatest { assistantId ->
@@ -86,7 +86,7 @@ fun Route.eventsRoutes(
             }
 
         // Folder list for the currently selected assistant (Room flow emits on any change).
-        val folderEvents = settingsStore.settingsFlow
+        val folderEvents = settingsStore.webSettingsFlow
             .map { it.assistantId }
             .distinctUntilChanged()
             .flatMapLatest { assistantId ->
