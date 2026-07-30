@@ -715,6 +715,13 @@
   <string name="setting_mcp_page_delete_header">ヘッダーを削除</string>
   <string name="setting_mcp_page_enable">有効</string>
   <string name="setting_mcp_page_enable_desc">このMCPサーバーを有効にするかどうか</string>
+  <string name="setting_mcp_page_disable_tool_prefix">ツール名のプレフィックスを無効にする</string>
+  <string name="setting_mcp_page_disable_tool_prefix_desc">元の MCP ツール名をそのままモデルに提供します。名前が重複するとツールを実行できません。</string>
+  <string name="setting_mcp_page_prefix_conflict_title">ツール名が重複しています</string>
+  <string name="setting_mcp_page_prefix_conflict_desc">プレフィックスを無効にすると、次のツール名が重複します：%1$s。競合するツールを無効にする予定がない場合は、プレフィックスを維持してください。</string>
+  <string name="setting_mcp_page_prefix_conflict_disable_anyway">無効にする</string>
+  <string name="setting_mcp_page_prefix_conflict_keep_prefix">プレフィックスを維持</string>
+  <string name="error_mcp_duplicate_tool_names">重複するツール名が検出されました：%1$s。MCP ツール名のプレフィックスを有効にするか、競合するツールを無効にしてください。</string>
   <string name="setting_mcp_page_export_copied">MCP設定をクリップボードにコピーしました</string>
   <string name="setting_mcp_page_header_name">ヘッダー名</string>
   <string name="setting_mcp_page_header_name_placeholder">例：Authorization</string>

@@ -715,6 +715,13 @@
   <string name="setting_mcp_page_delete_header">헤더 삭제</string>
   <string name="setting_mcp_page_enable">활성화</string>
   <string name="setting_mcp_page_enable_desc">이 MCP 서버를 활성화할지 여부</string>
+  <string name="setting_mcp_page_disable_tool_prefix">도구 이름 접두사 비활성화</string>
+  <string name="setting_mcp_page_disable_tool_prefix_desc">원래 MCP 도구 이름을 모델에 제공합니다. 이름이 중복되면 도구를 실행할 수 없습니다.</string>
+  <string name="setting_mcp_page_prefix_conflict_title">도구 이름 중복</string>
+  <string name="setting_mcp_page_prefix_conflict_desc">접두사를 비활성화하면 다음 도구 이름이 중복됩니다: %1$s. 충돌하는 도구를 비활성화할 계획이 없다면 접두사를 유지하세요.</string>
+  <string name="setting_mcp_page_prefix_conflict_disable_anyway">계속 비활성화</string>
+  <string name="setting_mcp_page_prefix_conflict_keep_prefix">접두사 유지</string>
+  <string name="error_mcp_duplicate_tool_names">중복된 도구 이름이 감지되었습니다: %1$s. MCP 도구 이름 접두사를 활성화하거나 충돌하는 도구를 비활성화하세요.</string>
   <string name="setting_mcp_page_export_copied">MCP 구성이 클립보드에 복사되었습니다</string>
   <string name="setting_mcp_page_header_name">헤더 이름</string>
   <string name="setting_mcp_page_header_name_placeholder">예: Authorization</string>

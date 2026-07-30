@@ -557,7 +557,8 @@ class ChatService(
                     }
                     mcpManager.getAllAvailableTools().also { allTools ->
                         val invalidNames = allTools
-                            .map { it.second }
+                            .filterNot { it.server.commonOptions.disableToolNamePrefix }
+                            .map { it.server.commonOptions.name }
                             .distinct()
                             .filter { name -> name.isEmpty() || !name.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' } }
                         if (invalidNames.isNotEmpty()) {
@@ -572,15 +573,35 @@ class ChatService(
                             )
                             return
                         }
-                    }.forEach { (serverId, serverName, tool) ->
+                        val duplicateNames = (map { it.name } + allTools.map { it.nameForModel })
+                            .groupingBy { it }
+                            .eachCount()
+                            .filterValues { it > 1 }
+                            .keys
+                            .sorted()
+                        if (duplicateNames.isNotEmpty()) {
+                            addError(
+                                error = IllegalStateException(
+                                    context.getString(
+                                        R.string.error_mcp_duplicate_tool_names,
+                                        duplicateNames.joinToString(", ")
+                                    )
+                                ),
+                                conversationId = conversationId,
+                            )
+                            return
+                        }
+                    }.forEach { availableTool ->
+                        val server = availableTool.server
+                        val tool = availableTool.tool
                         add(
                             Tool(
-                                name = "mcp__${serverName}__${tool.name}",
+                                name = availableTool.nameForModel,
                                 description = tool.description ?: "",
                                 parameters = { tool.inputSchema },
                                 needsApproval = { tool.needsApproval },
                                 execute = {
-                                    mcpManager.callTool(serverId, tool.name, it.jsonObject)
+                                    mcpManager.callTool(server.id, tool.name, it.jsonObject)
                                 },
                             )
                         )

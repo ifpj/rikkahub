@@ -96,7 +96,7 @@ class McpManager(
 
     fun getStatus(config: McpServerConfig): Flow<McpStatus> = sessionRegistry.getStatus(config.id)
 
-    fun getAllAvailableTools(): List<Triple<Uuid, String, McpTool>> {
+    fun getAllAvailableTools(): List<AvailableMcpTool> {
         val settings = settingsStore.settingsFlow.value
         val assistant = settings.getCurrentAssistant()
         return settings.mcpServers
@@ -104,7 +104,7 @@ class McpManager(
             .flatMap { server ->
                 server.commonOptions.tools
                     .filter { tool -> tool.enable }
-                    .map { tool -> Triple(server.id, server.commonOptions.name, tool) }
+                    .map { tool -> AvailableMcpTool(server = server, tool = tool) }
             }
     }
 

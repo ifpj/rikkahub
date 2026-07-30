@@ -715,6 +715,13 @@
   <string name="setting_mcp_page_delete_header">Удалить заголовок</string>
   <string name="setting_mcp_page_enable">Включить</string>
   <string name="setting_mcp_page_enable_desc">Включить ли этот MCP-сервер</string>
+  <string name="setting_mcp_page_disable_tool_prefix">Отключить префикс имени инструмента</string>
+  <string name="setting_mcp_page_disable_tool_prefix_desc">Передавать модели исходные имена инструментов MCP. При совпадении имён инструменты не смогут работать.</string>
+  <string name="setting_mcp_page_prefix_conflict_title">Повторяющиеся имена инструментов</string>
+  <string name="setting_mcp_page_prefix_conflict_desc">После отключения префикса появятся повторяющиеся имена: %1$s. Сохраните префикс, если не планируете отключить конфликтующие инструменты.</string>
+  <string name="setting_mcp_page_prefix_conflict_disable_anyway">Всё равно отключить</string>
+  <string name="setting_mcp_page_prefix_conflict_keep_prefix">Сохранить префикс</string>
+  <string name="error_mcp_duplicate_tool_names">Обнаружены повторяющиеся имена инструментов: %1$s. Включите префиксы MCP или отключите конфликтующие инструменты.</string>
   <string name="setting_mcp_page_export_copied">Конфигурация MCP скопирована в буфер обмена</string>
   <string name="setting_mcp_page_header_name">Имя заголовка</string>
   <string name="setting_mcp_page_header_name_placeholder">например: Авторизация</string>

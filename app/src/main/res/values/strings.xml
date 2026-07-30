@@ -755,6 +755,13 @@
   <string name="setting_mcp_page_delete_header">Delete Header</string>
   <string name="setting_mcp_page_enable">Enable</string>
   <string name="setting_mcp_page_enable_desc">Whether to enable this MCP server</string>
+  <string name="setting_mcp_page_disable_tool_prefix">Disable Tool Name Prefix</string>
+  <string name="setting_mcp_page_disable_tool_prefix_desc">Use the original MCP tool names. Duplicate names can prevent tools from running.</string>
+  <string name="setting_mcp_page_prefix_conflict_title">Duplicate Tool Names</string>
+  <string name="setting_mcp_page_prefix_conflict_desc">Disabling the prefix will create duplicate tool names: %1$s. Keep the prefix unless you plan to disable the conflicting tools.</string>
+  <string name="setting_mcp_page_prefix_conflict_disable_anyway">Disable Anyway</string>
+  <string name="setting_mcp_page_prefix_conflict_keep_prefix">Keep Prefix</string>
+  <string name="error_mcp_duplicate_tool_names">Duplicate tool names detected: %1$s. Enable MCP tool name prefixes or disable the conflicting tools.</string>
   <string name="setting_mcp_page_export_copied">MCP configuration copied to clipboard</string>
   <string name="setting_mcp_page_header_name">Header Name</string>
   <string name="setting_mcp_page_header_name_placeholder">e.g.: Authorization</string>

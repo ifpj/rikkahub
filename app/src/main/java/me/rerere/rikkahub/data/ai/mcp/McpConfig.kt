@@ -9,6 +9,7 @@ import kotlin.uuid.Uuid
 data class McpCommonOptions(
     val enable: Boolean = true,
     val name: String = "",
+    val disableToolNamePrefix: Boolean = false,
     val headers: List<Pair<String, String>> = emptyList(),
     val tools: List<McpTool> = emptyList(),
     val oauth: McpOAuthState? = null,
@@ -58,6 +59,14 @@ data class McpTool(
     val needsApproval: Boolean = false
 )
 
+data class AvailableMcpTool(
+    val server: McpServerConfig,
+    val tool: McpTool,
+) {
+    val nameForModel: String
+        get() = server.toolNameForModel(tool.name)
+}
+
 @Serializable
 sealed class McpServerConfig {
     abstract val id: Uuid
@@ -99,3 +108,29 @@ val McpServerConfig.serverUrl: String
         is McpServerConfig.SseTransportServer -> url
         is McpServerConfig.StreamableHTTPServer -> url
     }
+
+fun McpServerConfig.toolNameForModel(toolName: String): String =
+    if (commonOptions.disableToolNamePrefix) toolName else "mcp__${commonOptions.name}__$toolName"
+
+fun findDuplicateMcpToolNames(
+    configs: List<McpServerConfig>,
+    updatedConfig: McpServerConfig,
+): List<String> {
+    val mergedConfigs = if (configs.any { it.id == updatedConfig.id }) {
+        configs.map { if (it.id == updatedConfig.id) updatedConfig else it }
+    } else {
+        configs + updatedConfig
+    }
+    return mergedConfigs
+        .filter { it.commonOptions.enable }
+        .flatMap { server ->
+            server.commonOptions.tools
+                .filter { it.enable }
+                .map { server.toolNameForModel(it.name) }
+        }
+        .groupingBy { it }
+        .eachCount()
+        .filterValues { it > 1 }
+        .keys
+        .sorted()
+}
