@@ -364,12 +364,6 @@ private fun StatsGrid(stats: AppStats, modifier: Modifier = Modifier) {
                 value = formatCount(stats.totalMessages.toLong()),
             )
         }
-        StatCard(
-            modifier = Modifier.fillMaxWidth(),
-            icon = HugeIcons.Rocket01,
-            label = stringResource(R.string.stats_page_launch_count),
-            value = formatCount(stats.launchCount.toLong()),
-        )
     }
 }
 

@@ -30,7 +30,6 @@ data class AppStats(
     val totalMessages: Int = 0,
     // 热力图：每天的对话请求次数
     val requestsPerDay: Map<LocalDate, Int> = emptyMap(),
-    val launchCount: Int = 0,
 )
 
 /** 用量统计的时间范围；[days] 为空表示全部，按月分桶 */
@@ -117,14 +116,12 @@ class StatsVM(
 
         val totalConversations = conversationDAO.countAll()
         val totalMessages = messageNodeDAO.countAll()
-        val launchCount = settingsStore.launchCountFlow.first()
 
         _stats.value = AppStats(
             isLoading = false,
             totalConversations = totalConversations,
             totalMessages = totalMessages,
             requestsPerDay = requestsPerDay,
-            launchCount = launchCount,
         )
     }
 
