@@ -67,9 +67,6 @@
 - [Okhttp](https://square.github.io/okhttp/) (HTTP 客户端)
 - [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) (Json序列化)
 
-> [!TIP]
-> 你需要在 `app` 文件夹下添加 `google-services.json` 文件才能构建应用。
-
 > [!IMPORTANT]  
 > 以下PR将被拒绝：
 > 1. 添加新语言，因为添加新语言会增加后续本地化的工作量

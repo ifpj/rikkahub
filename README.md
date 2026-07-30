@@ -73,9 +73,6 @@ Technology stack documentation:
 - [Okhttp](https://square.github.io/okhttp/) (HTTP client)
 - [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) (JSON serialization)
 
-> [!TIP]
-> You need a `google-services.json` file at `app` folder to build the app.
-
 > [!IMPORTANT]  
 > The following PRs will be rejected:
 > 1. Translation related changes, such as adding new languages or updating existing translations
