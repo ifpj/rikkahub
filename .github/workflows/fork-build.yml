@@ -98,19 +98,6 @@ jobs:
             sed -i 's|^storeFile=.*|storeFile=app.key|' local.properties
           fi
 
-          # google-services.json（缺失则用占位文件，禁用 Firebase 功能但不影响编译）
-          if [ -n '${{ secrets.GOOGLE_SERVICES_JSON }}' ]; then
-            echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
-          else
-            cat > app/google-services.json << 'GSEOF'
-          {
-            "project_info": { "project_number": "000000000000", "project_id": "placeholder", "storage_bucket": "placeholder.appspot.com" },
-            "client": [{ "client_info": { "mobilesdk_app_id": "1:000000000000:android:0000000000000000", "android_client_info": { "package_name": "me.rerere.rikkahub" } }, "api_key": [{ "current_key": "placeholder" }] }],
-            "configuration_version": "1"
-          }
-          GSEOF
-          fi
-
       - name: Override versionName and versionCode
         run: |
           FORK_VERSION="${{ steps.version.outputs.fork_version }}"
