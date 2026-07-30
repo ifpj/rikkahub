@@ -9,7 +9,8 @@
     "web_search_searching_for": "Searching the web for “{{query}}”…",
     "web_search_completed": "Searched the web",
     "web_search_completed_for": "Searched the web for “{{query}}”",
-    "web_search_sources": "{{count}} sources"
+    "web_search_sources": "{{count}} sources",
+    "web_search_count": "Web search × {{count}}"
   },
   "chat_message": {
     "copy_image": "Image",

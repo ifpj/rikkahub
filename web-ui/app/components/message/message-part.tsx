@@ -1,7 +1,13 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import type { ReasoningPart, ToolPart, UIMessagePart } from "~/types";
+import type {
+  ReasoningPart,
+  ToolPart,
+  UIMessagePart,
+  WebSearchPart as UIWebSearchPart,
+} from "~/types";
+import { serverNow } from "~/lib/utils";
 
 import { ChainOfThought } from "./chain-of-thought";
 import { AudioPart } from "./parts/audio-part";
@@ -22,6 +28,10 @@ type ThinkingStep =
   | {
       type: "tool";
       tool: ToolPart;
+    }
+  | {
+      type: "web_search";
+      search: UIWebSearchPart;
     };
 
 type MessagePartBlock =
@@ -56,6 +66,11 @@ export function groupMessageParts(parts: UIMessagePart[]): MessagePartBlock[] {
       return;
     }
 
+    if (part.type === "web_search") {
+      currentThinkingSteps.push({ type: "web_search", search: part });
+      return;
+    }
+
     flushThinkingSteps();
     result.push({ type: "content", part, index });
   });
@@ -67,7 +82,12 @@ export function groupMessageParts(parts: UIMessagePart[]): MessagePartBlock[] {
 interface MessagePartsProps {
   parts: UIMessagePart[];
   loading?: boolean;
-  onToolApproval?: (toolCallId: string, approved: boolean, reason: string, answer?: string) => void | Promise<void>;
+  onToolApproval?: (
+    toolCallId: string,
+    approved: boolean,
+    reason: string,
+    answer?: string,
+  ) => void | Promise<void>;
   onClickCitation?: (id: string) => void;
 }
 
@@ -101,81 +121,123 @@ function renderContentPart(
   }
 }
 
-export const MessageParts = React.memo(({
-  parts,
-  loading = false,
-  onToolApproval,
-  onClickCitation,
-}: MessagePartsProps) => {
-  const { t } = useTranslation("message");
-  const groupedParts = React.useMemo(() => groupMessageParts(parts), [parts]);
+export const MessageParts = React.memo(
+  ({ parts, loading = false, onToolApproval, onClickCitation }: MessagePartsProps) => {
+    const { t } = useTranslation("message");
+    const groupedParts = React.useMemo(() => groupMessageParts(parts), [parts]);
 
-  return (
-    <>
-      {groupedParts.map((block, blockIndex) => {
-        if (block.type === "thinking") {
-          if (block.steps.length === 0) return null;
+    return (
+      <>
+        {groupedParts.map((block, blockIndex) => {
+          if (block.type === "thinking") {
+            if (block.steps.length === 0) return null;
 
-          const isReasoningOnlyBlock = block.steps.every((step) => step.type === "reasoning");
-          const hasLoadingReasoning = block.steps.some(
-            (step) => step.type === "reasoning" && step.reasoning.finishedAt == null,
-          );
-          const enableAdaptiveWidth = isReasoningOnlyBlock && !hasLoadingReasoning;
+            const isReasoningOnlyBlock = block.steps.every((step) => step.type === "reasoning");
+            const webSearchCount = block.steps.filter((step) => step.type === "web_search").length;
+            const reasoningSeconds = block.steps.reduce((total, step) => {
+              if (step.type !== "reasoning" || !step.reasoning.createdAt) return total;
+              const start = Date.parse(step.reasoning.createdAt);
+              const end = step.reasoning.finishedAt
+                ? Date.parse(step.reasoning.finishedAt)
+                : serverNow();
+              if (Number.isNaN(start) || Number.isNaN(end)) return total;
+              return total + Math.max((end - start) / 1000, 0);
+            }, 0);
+            const summary = [
+              reasoningSeconds > 0
+                ? t("message_parts.thinking_seconds", { seconds: reasoningSeconds.toFixed(1) })
+                : null,
+              webSearchCount > 0
+                ? t("message_parts.web_search_count", { count: webSearchCount })
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            const hasLoadingReasoning = block.steps.some(
+              (step) => step.type === "reasoning" && step.reasoning.finishedAt == null,
+            );
+            const hasActiveWebSearchThinking =
+              loading &&
+              block.steps.some(
+                (step) =>
+                  (step.type === "reasoning" && step.reasoning.finishedAt == null) ||
+                  (step.type === "web_search" && step.search.status !== "completed"),
+              );
+            const enableAdaptiveWidth = isReasoningOnlyBlock && !hasLoadingReasoning;
 
-          return (
-            <ChainOfThought
-              key={`thinking-${blockIndex}`}
-              className="my-1"
-              collapsedAdaptiveWidth={enableAdaptiveWidth}
-              collapseLabel={t("message_parts.collapse_thinking")}
-              showMoreLabel={(hiddenCount) =>
-                t("message_parts.expand_thinking_steps", { count: hiddenCount })
-              }
-              steps={block.steps}
-              renderStep={(step, stepIndex, { isFirst, isLast }) => {
-                if (step.type === "reasoning") {
-                  const stepKey = step.reasoning.createdAt ?? `${blockIndex}-${stepIndex}`;
+            return (
+              <ChainOfThought
+                key={`thinking-${blockIndex}`}
+                className="my-1"
+                collapsedAdaptiveWidth={enableAdaptiveWidth}
+                collapsedSummary={webSearchCount > 0 ? summary : undefined}
+                forceExpanded={webSearchCount > 0 && hasActiveWebSearchThinking}
+                collapseLabel={t("message_parts.collapse_thinking")}
+                showMoreLabel={(hiddenCount) =>
+                  t("message_parts.expand_thinking_steps", { count: hiddenCount })
+                }
+                steps={block.steps}
+                renderStep={(step, stepIndex, { isFirst, isLast }) => {
+                  if (step.type === "reasoning") {
+                    const stepKey = step.reasoning.createdAt ?? `${blockIndex}-${stepIndex}`;
+                    return (
+                      <ReasoningStepPart
+                        key={stepKey}
+                        reasoning={step.reasoning}
+                        collapsedAdaptiveWidth={enableAdaptiveWidth}
+                        isFirst={isFirst}
+                        isLast={isLast}
+                      />
+                    );
+                  }
+
+                  if (step.type === "web_search") {
+                    return (
+                      <WebSearchPart
+                        key={step.search.id || `${blockIndex}-${stepIndex}`}
+                        search={step.search}
+                        isFirst={isFirst}
+                        isLast={isLast}
+                      />
+                    );
+                  }
+
+                  const stepKey = step.tool.toolCallId || `${blockIndex}-${stepIndex}`;
                   return (
-                    <ReasoningStepPart
+                    <ToolStepPart
                       key={stepKey}
-                      reasoning={step.reasoning}
-                      collapsedAdaptiveWidth={enableAdaptiveWidth}
+                      tool={step.tool}
+                      loading={loading && step.tool.output.length === 0}
+                      onToolApproval={onToolApproval}
                       isFirst={isFirst}
                       isLast={isLast}
                     />
                   );
-                }
+                }}
+              />
+            );
+          }
 
-                const stepKey = step.tool.toolCallId || `${blockIndex}-${stepIndex}`;
-                return (
-                  <ToolStepPart
-                    key={stepKey}
-                    tool={step.tool}
-                    loading={loading && step.tool.output.length === 0}
-                    onToolApproval={onToolApproval}
-                    isFirst={isFirst}
-                    isLast={isLast}
-                  />
-                );
-              }}
-            />
+          return (
+            <React.Fragment key={`content-${block.index}`}>
+              {renderContentPart(block.part, t, loading, onClickCitation)}
+            </React.Fragment>
           );
-        }
-
-        return (
-          <React.Fragment key={`content-${block.index}`}>
-            {renderContentPart(block.part, t, loading, onClickCitation)}
-          </React.Fragment>
-        );
-      })}
-    </>
-  );
-});
+        })}
+      </>
+    );
+  },
+);
 
 interface MessagePartProps {
   part: UIMessagePart;
   loading?: boolean;
-  onToolApproval?: (toolCallId: string, approved: boolean, reason: string, answer?: string) => void | Promise<void>;
+  onToolApproval?: (
+    toolCallId: string,
+    approved: boolean,
+    reason: string,
+    answer?: string,
+  ) => void | Promise<void>;
   onClickCitation?: (id: string) => void;
 }
 

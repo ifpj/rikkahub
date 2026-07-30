@@ -257,6 +257,7 @@
   <string name="chat_message_builtin_search_completed">已完成網路搜尋</string>
   <string name="chat_message_builtin_search_completed_for">已搜尋「%1$s」</string>
   <string name="chat_message_builtin_search_sources">%1$d 個來源</string>
+  <string name="chat_message_builtin_search_count">搜尋 × %1$d</string>
   <string name="chat_message_tool_submit">提交</string>
   <string name="chat_page_cancel">取消</string>
   <string name="chat_page_check_title_model_settings">檢查標題模型設定</string>

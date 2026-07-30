@@ -261,6 +261,7 @@
   <string name="chat_message_builtin_search_completed">Searched the web</string>
   <string name="chat_message_builtin_search_completed_for">Searched the web for “%1$s”</string>
   <string name="chat_message_builtin_search_sources">%1$d sources</string>
+  <string name="chat_message_builtin_search_count">Web search × %1$d</string>
   <string name="chat_message_tool_submit">Submit</string>
   <string name="chat_page_cancel">Cancel</string>
   <string name="chat_page_check_title_model_settings">Check title model settings</string>

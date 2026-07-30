@@ -74,11 +74,15 @@ fun <T> ChainOfThought(
     steps: List<T>,
     collapsedVisibleCount: Int = 2,
     collapsedAdaptiveWidth: Boolean = false,
+    collapsedSummary: (@Composable () -> Unit)? = null,
+    forceExpanded: Boolean = false,
     content: @Composable ChainOfThoughtScope.(T) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val canCollapse = steps.size > collapsedVisibleCount
-    val shouldFillCollapseControlWidth = expanded || !collapsedAdaptiveWidth
+    val displayExpanded = expanded || forceExpanded
+    val summaryMode = collapsedSummary != null
+    val canCollapse = if (summaryMode) steps.isNotEmpty() else steps.size > collapsedVisibleCount
+    val shouldFillCollapseControlWidth = displayExpanded || !collapsedAdaptiveWidth
 
     CompositionLocalProvider(
         LocalCardColor provides cardColors.containerColor
@@ -95,10 +99,10 @@ fun <T> ChainOfThought(
                         animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
                     ),
             ) {
-                val visibleSteps = if (expanded || !canCollapse) {
-                    steps
-                } else {
-                    steps.takeLast(collapsedVisibleCount)
+                val visibleSteps = when {
+                    displayExpanded || !canCollapse -> steps
+                    summaryMode -> emptyList()
+                    else -> steps.takeLast(collapsedVisibleCount)
                 }
 
                 // 显示展开/折叠按钮（统一在顶部）
@@ -113,7 +117,7 @@ fun <T> ChainOfThought(
                                 }
                             )
                             .clip(MaterialTheme.shapes.small)
-                            .clickable { expanded = !expanded }
+                            .clickable(enabled = !forceExpanded) { expanded = !expanded }
                             .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -123,7 +127,7 @@ fun <T> ChainOfThought(
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                imageVector = if (expanded) HugeIcons.ArrowUp01 else HugeIcons.ArrowDown01,
+                                imageVector = if (displayExpanded) HugeIcons.ArrowUp01 else HugeIcons.ArrowDown01,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.primary,
@@ -131,39 +135,46 @@ fun <T> ChainOfThought(
                         }
 
                         // 右侧：文字区域（8.dp 间距后开始，和步骤 label 对齐）
-                        Text(
-                            modifier = Modifier.padding(start = 8.dp),
-                            text = if (expanded) {
-                                stringResource(R.string.chain_of_thought_collapse)
+                        Box(modifier = Modifier.padding(start = 8.dp)) {
+                            if (!displayExpanded && collapsedSummary != null) {
+                                collapsedSummary()
                             } else {
-                                stringResource(
-                                    R.string.chain_of_thought_show_more_steps,
-                                    steps.size - collapsedVisibleCount
+                                Text(
+                                    text = if (displayExpanded) {
+                                        stringResource(R.string.chain_of_thought_collapse)
+                                    } else {
+                                        stringResource(
+                                            R.string.chain_of_thought_show_more_steps,
+                                            steps.size - collapsedVisibleCount
+                                        )
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
                                 )
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                            }
+                        }
                     }
                 }
 
                 val lineColor = MaterialTheme.colorScheme.outlineVariant
                 val scope = remember { ChainOfThoughtScopeImpl() }
-                Box(
-                    modifier = Modifier.drawBehind {
-                        val x = 12.dp.toPx()
-                        val offsetPx = 18.dp.toPx()
-                        drawLine(
-                            color = lineColor,
-                            start = Offset(x, offsetPx),
-                            end = Offset(x, size.height - offsetPx),
-                            strokeWidth = 1.dp.toPx()
-                        )
-                    }
-                ) {
-                    Column {
-                        visibleSteps.fastForEach { step ->
-                            scope.content(step)
+                if (visibleSteps.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier.drawBehind {
+                            val x = 12.dp.toPx()
+                            val offsetPx = 18.dp.toPx()
+                            drawLine(
+                                color = lineColor,
+                                start = Offset(x, offsetPx),
+                                end = Offset(x, size.height - offsetPx),
+                                strokeWidth = 1.dp.toPx()
+                            )
+                        }
+                    ) {
+                        Column {
+                            visibleSteps.fastForEach { step ->
+                                scope.content(step)
+                            }
                         }
                     }
                 }

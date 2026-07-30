@@ -9,7 +9,8 @@
     "web_search_searching_for": "正在搜索“{{query}}”…",
     "web_search_completed": "已完成网络搜索",
     "web_search_completed_for": "已搜索“{{query}}”",
-    "web_search_sources": "{{count}} 个来源"
+    "web_search_sources": "{{count}} 个来源",
+    "web_search_count": "搜索 × {{count}}"
   },
   "chat_message": {
     "copy_image": "图片",

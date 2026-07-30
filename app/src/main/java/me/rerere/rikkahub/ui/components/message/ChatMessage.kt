@@ -319,10 +319,44 @@ private fun MessagePartsBlock(
             is MessagePartBlock.ThinkingBlock -> {
                 if (block.steps.isNotEmpty()) {
                     val isReasoningOnlyBlock = block.steps.fastAll { it is ThinkingStep.ReasoningStep }
+                    val webSearchCount = block.steps.count { it is ThinkingStep.WebSearchStep }
+                    val hasActiveWebSearchThinking = loading && block.steps.any { step ->
+                        (step is ThinkingStep.ReasoningStep && step.reasoning.finishedAt == null) ||
+                            (step is ThinkingStep.WebSearchStep && !step.search.isCompleted)
+                    }
+                    val reasoningSeconds = block.steps.sumOf { step ->
+                        if (step is ThinkingStep.ReasoningStep) {
+                            val end = step.reasoning.finishedAt ?: kotlin.time.Clock.System.now()
+                            maxOf((end - step.reasoning.createdAt).inWholeMilliseconds, 0L)
+                        } else {
+                            0L
+                        }
+                    } / 1000f
                     ChainOfThought(
                         modifier = Modifier.animateContentSize(),
                         steps = block.steps,
                         collapsedAdaptiveWidth = isReasoningOnlyBlock,
+                        forceExpanded = webSearchCount > 0 && hasActiveWebSearchThinking,
+                        collapsedSummary = if (webSearchCount > 0) {
+                            {
+                                val thinkingSummary = if (reasoningSeconds > 0f) {
+                                    stringResource(R.string.deep_thinking_seconds, reasoningSeconds)
+                                } else {
+                                    null
+                                }
+                                val searchSummary = stringResource(
+                                    R.string.chat_message_builtin_search_count,
+                                    webSearchCount
+                                )
+                                Text(
+                                    text = listOfNotNull(thinkingSummary, searchSummary).joinToString(" · "),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        } else {
+                            null
+                        },
                         cardColors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = settings.displaySetting.bubbleOpacity),
                         ),
@@ -347,6 +381,12 @@ private fun MessagePartsBlock(
                                         onToolApproval = onToolApproval,
                                         onToolAnswer = onToolAnswer,
                                     )
+                                }
+                            }
+
+                            is ThinkingStep.WebSearchStep -> {
+                                key(step.search.id.ifBlank { step.hashCode().toString() }) {
+                                    ChatMessageWebSearchStep(step.search)
                                 }
                             }
                         }
@@ -560,10 +600,6 @@ private fun MessagePartsBlock(
                                 }
                             }
                         }
-                    }
-
-                    is UIMessagePart.WebSearch -> {
-                        ChatMessageWebSearchPart(part)
                     }
 
                     else -> {

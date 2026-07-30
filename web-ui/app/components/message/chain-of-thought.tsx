@@ -8,6 +8,8 @@ interface ChainOfThoughtProps<T> extends React.ComponentProps<typeof Card> {
   steps: T[];
   collapsedVisibleCount?: number;
   collapsedAdaptiveWidth?: boolean;
+  collapsedSummary?: React.ReactNode;
+  forceExpanded?: boolean;
   renderStep: (
     step: T,
     index: number,
@@ -43,6 +45,8 @@ function ChainOfThought<T>({
   steps,
   collapsedVisibleCount = 2,
   collapsedAdaptiveWidth = false,
+  collapsedSummary,
+  forceExpanded = false,
   renderStep,
   collapseLabel = "Collapse",
   showMoreLabel,
@@ -50,10 +54,17 @@ function ChainOfThought<T>({
   ...props
 }: ChainOfThoughtProps<T>) {
   const [expanded, setExpanded] = React.useState(false);
-  const canCollapse = steps.length > collapsedVisibleCount;
-  const visibleSteps = expanded || !canCollapse ? steps : steps.slice(-collapsedVisibleCount);
+  const displayExpanded = expanded || forceExpanded;
+  const summaryMode = collapsedSummary != null;
+  const canCollapse = summaryMode ? steps.length > 0 : steps.length > collapsedVisibleCount;
+  const visibleSteps =
+    displayExpanded || !canCollapse
+      ? steps
+      : summaryMode
+        ? []
+        : steps.slice(-collapsedVisibleCount);
   const hiddenCount = Math.max(steps.length - collapsedVisibleCount, 0);
-  const shouldFillCollapseControlWidth = expanded || !collapsedAdaptiveWidth;
+  const shouldFillCollapseControlWidth = displayExpanded || !collapsedAdaptiveWidth;
 
   return (
     <Card
@@ -71,15 +82,22 @@ function ChainOfThought<T>({
             "text-primary hover:bg-muted/60 focus-visible:ring-ring/50 mb-1 flex items-center gap-2 rounded-md px-1 py-1 text-left text-sm outline-none focus-visible:ring-[3px]",
             shouldFillCollapseControlWidth ? "w-full" : "w-fit self-start",
           )}
+          disabled={forceExpanded}
           onClick={() => setExpanded((prev) => !prev)}
         >
           <span className="flex w-6 items-center justify-center">
-            {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+            {displayExpanded ? (
+              <ChevronUp className="size-4" />
+            ) : (
+              <ChevronDown className="size-4" />
+            )}
           </span>
           <span>
-            {expanded
+            {displayExpanded
               ? collapseLabel
-              : (showMoreLabel?.(hiddenCount) ?? `Show ${hiddenCount} more steps`)}
+              : (collapsedSummary ??
+                showMoreLabel?.(hiddenCount) ??
+                `Show ${hiddenCount} more steps`)}
           </span>
         </button>
       )}
