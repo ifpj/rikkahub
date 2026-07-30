@@ -119,14 +119,17 @@ export interface ProviderModel {
   outputModalities?: ModelModality[];
   abilities?: ModelAbility[];
   tools?: BuiltInTool[];
+  providerOverwrite?: ProviderProfile | null;
   [key: string]: unknown;
 }
 
 export interface ProviderProfile {
   id: string;
+  type?: string;
   enabled: boolean;
   name: string;
   models: ProviderModel[];
+  useResponseApi?: boolean;
   [key: string]: unknown;
 }
 
