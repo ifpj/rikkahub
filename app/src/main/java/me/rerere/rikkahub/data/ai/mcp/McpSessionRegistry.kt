@@ -123,14 +123,23 @@ internal class McpSessionRegistry(
             if (existing == null) {
                 val session = McpSession(newConfig)
                 if (sessions.putIfAbsent(newConfig.id, session) == null) {
-                    appScope.launch { addClient(newConfig) }
+                    if (newConfig.shouldInitializeOnStartup()) {
+                        appScope.launch { addClient(newConfig) }
+                    } else {
+                        Log.i(
+                            TAG,
+                            "Deferred MCP startup initialization for ${newConfig.id} " +
+                                "(${newConfig.commonOptions.name})"
+                        )
+                    }
                 }
                 return@forEach
             }
 
             val mustReconnect = !hasSameConnectionParameters(existing.config, newConfig)
+            val hasClient = existing.client != null
             existing.config = newConfig
-            if (mustReconnect) {
+            if (newConfig.shouldConnectDuringReconcile(hasClient, mustReconnect)) {
                 appScope.launch { addClient(newConfig) }
             }
         }
@@ -509,6 +518,21 @@ private fun mergeTools(storedTools: List<McpTool>, serverTools: List<Tool>): Lis
             inputSchema = serverTool.inputSchema.toSchema(),
         )
     }
+}
+
+/**
+ * 延迟初始化需要已有工具缓存；首次配置仍连接一次以发现工具，否则该服务无法被模型调用。
+ */
+internal fun McpServerConfig.shouldInitializeOnStartup(): Boolean =
+    !commonOptions.skipStartupInitialization || commonOptions.tools.isEmpty()
+
+internal fun McpServerConfig.shouldConnectDuringReconcile(
+    hasClient: Boolean,
+    connectionChanged: Boolean,
+): Boolean = when {
+    hasClient && connectionChanged -> true
+    !hasClient -> shouldInitializeOnStartup()
+    else -> false
 }
 
 private fun ToolSchema.toSchema(): InputSchema =

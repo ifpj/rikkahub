@@ -297,7 +297,14 @@ fun McpPicker(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     when (status) {
-                        McpStatus.Idle -> Icon(HugeIcons.Icon1stBracket, null)
+                        McpStatus.Idle -> Icon(
+                            if (server.commonOptions.skipStartupInitialization) {
+                                HugeIcons.McpServer
+                            } else {
+                                HugeIcons.Icon1stBracket
+                            },
+                            null
+                        )
                         McpStatus.Connecting -> CircularProgressIndicator(
                             modifier = Modifier.size(
                                 24.dp
@@ -324,7 +331,11 @@ fun McpPicker(
                         )
                         Text(
                             text = when (val s = status) {
-                                is McpStatus.Idle -> "Idle"
+                                is McpStatus.Idle -> if (server.commonOptions.skipStartupInitialization) {
+                                    "Deferred"
+                                } else {
+                                    "Idle"
+                                }
                                 is McpStatus.Connecting -> "Connecting"
                                 is McpStatus.Connected -> "Connected"
                                 is McpStatus.Reconnecting -> "Reconnecting (${s.attempt}/${s.maxAttempts})"
@@ -336,7 +347,9 @@ fun McpPicker(
                             color = LocalContentColor.current.copy(alpha = 0.8f),
                             maxLines = 5
                         )
-                        if (status == McpStatus.Connected) {
+                        if (status == McpStatus.Connected ||
+                            (status == McpStatus.Idle && server.commonOptions.skipStartupInitialization)
+                        ) {
                             val tools = server.commonOptions.tools
                             val enabledTools = tools.fastFilter { it.enable }
                             Tag(

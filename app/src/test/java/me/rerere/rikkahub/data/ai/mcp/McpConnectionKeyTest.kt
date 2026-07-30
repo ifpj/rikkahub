@@ -20,9 +20,13 @@ class McpConnectionKeyTest {
         val withoutPrefix = base.copy(
             commonOptions = base.commonOptions.copy(disableToolNamePrefix = true)
         )
+        val deferredInitialization = base.copy(
+            commonOptions = base.commonOptions.copy(skipStartupInitialization = true)
+        )
 
         assertEquals(base.connectionKey(), withTools.connectionKey())
         assertEquals(base.connectionKey(), withoutPrefix.connectionKey())
+        assertEquals(base.connectionKey(), deferredInitialization.connectionKey())
     }
 
     @Test
@@ -60,5 +64,22 @@ class McpConnectionKeyTest {
             commonOptions = manualAuth.commonOptions.copy(oauth = null)
         )
         assertEquals(manualAuthWithoutOAuth.connectionKey(), manualAuth.connectionKey())
+    }
+
+    @Test
+    fun `startup initialization can only be skipped with cached tools`() {
+        val deferredWithoutCache = base.copy(
+            commonOptions = base.commonOptions.copy(skipStartupInitialization = true)
+        )
+        val deferredWithCache = deferredWithoutCache.copy(
+            commonOptions = deferredWithoutCache.commonOptions.copy(
+                tools = listOf(McpTool(name = "search"))
+            )
+        )
+
+        assertEquals(true, deferredWithoutCache.shouldInitializeOnStartup())
+        assertEquals(false, deferredWithCache.shouldInitializeOnStartup())
+        assertEquals(false, deferredWithCache.shouldConnectDuringReconcile(false, false))
+        assertEquals(true, deferredWithCache.shouldConnectDuringReconcile(true, true))
     }
 }

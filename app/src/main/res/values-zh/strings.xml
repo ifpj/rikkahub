@@ -755,6 +755,8 @@
   <string name="setting_mcp_page_enable_desc">是否启用此MCP服务器</string>
   <string name="setting_mcp_page_disable_tool_prefix">关闭工具名称前缀</string>
   <string name="setting_mcp_page_disable_tool_prefix_desc">直接向模型提供 MCP 原始工具名称；名称重复时工具将无法运行。</string>
+  <string name="setting_mcp_page_skip_startup_initialization">跳过启动时初始化</string>
+  <string name="setting_mcp_page_skip_startup_initialization_desc">App 启动时不连接此服务，首次调用工具或手动同步时再初始化；没有缓存工具时仍会初始化一次。</string>
   <string name="setting_mcp_page_prefix_conflict_title">工具名称重复</string>
   <string name="setting_mcp_page_prefix_conflict_desc">关闭前缀后将产生重复工具名称：%1$s。除非准备禁用冲突工具，否则建议保留前缀。</string>
   <string name="setting_mcp_page_prefix_conflict_disable_anyway">仍然关闭</string>
@@ -784,6 +786,7 @@
   <string name="setting_mcp_page_title">MCP</string>
   <string name="setting_mcp_page_tools">工具</string>
   <string name="setting_mcp_page_tools_unavailable_message">添加MCP Server时无法查看工具列表，请添加完后再来查看</string>
+  <string name="setting_mcp_page_tools_cached_message">已跳过启动时初始化，下面显示缓存的工具；可使用同步按钮刷新。</string>
   <string name="setting_mcp_page_transport_type">传输类型</string>
   <string name="setting_mcp_page_transport_type_desc">选择MCP服务器的传输协议类型</string>
   <string name="setting_mcp_page_url_label">URL</string>

@@ -763,6 +763,8 @@
   <string name="setting_mcp_page_enable_desc">Whether to enable this MCP server</string>
   <string name="setting_mcp_page_disable_tool_prefix">Disable Tool Name Prefix</string>
   <string name="setting_mcp_page_disable_tool_prefix_desc">Use the original MCP tool names. Duplicate names can prevent tools from running.</string>
+  <string name="setting_mcp_page_skip_startup_initialization">Skip Startup Initialization</string>
+  <string name="setting_mcp_page_skip_startup_initialization_desc">Do not connect when the app starts. Initialize on the first tool call or manual sync. Servers without cached tools will still initialize once.</string>
   <string name="setting_mcp_page_prefix_conflict_title">Duplicate Tool Names</string>
   <string name="setting_mcp_page_prefix_conflict_desc">Disabling the prefix will create duplicate tool names: %1$s. Keep the prefix unless you plan to disable the conflicting tools.</string>
   <string name="setting_mcp_page_prefix_conflict_disable_anyway">Disable Anyway</string>
@@ -792,6 +794,7 @@
   <string name="setting_mcp_page_title">MCP</string>
   <string name="setting_mcp_page_tools">Tools</string>
   <string name="setting_mcp_page_tools_unavailable_message">Cannot view tool list when adding MCP Server, please check back after adding</string>
+  <string name="setting_mcp_page_tools_cached_message">Startup initialization is deferred. The cached tools are shown below; use Sync to refresh them.</string>
   <string name="setting_mcp_page_transport_type">Transport Type</string>
   <string name="setting_mcp_page_transport_type_desc">Select the transport protocol type for the MCP server</string>
   <string name="setting_mcp_page_url_label">URL</string>
