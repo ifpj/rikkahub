@@ -289,7 +289,14 @@ fun McpPicker(
                 colors = colors,
                 leadingContent = {
                     when (status) {
-                        McpStatus.Idle -> Icon(HugeIcons.Icon1stBracket, null)
+                        McpStatus.Idle -> Icon(
+                            if (server.commonOptions.skipStartupInitialization) {
+                                HugeIcons.McpServer
+                            } else {
+                                HugeIcons.Icon1stBracket
+                            },
+                            null
+                        )
                         McpStatus.Connected -> Icon(HugeIcons.McpServer, null)
                         McpStatus.Connecting,
                         is McpStatus.Reconnecting,
@@ -308,7 +315,7 @@ fun McpPicker(
                 supportingContent = {
                     Text(
                         text = when (val s = status) {
-                            is McpStatus.Idle -> "Idle"
+                            is McpStatus.Idle -> if (server.commonOptions.skipStartupInitialization) "Deferred" else "Idle"
                             is McpStatus.Connecting -> "Connecting"
                             is McpStatus.Connected -> "Connected"
                             is McpStatus.Reconnecting -> "Reconnecting (${s.attempt}/${s.maxAttempts})"

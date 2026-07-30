@@ -302,7 +302,14 @@ private fun McpServerItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             when (status) {
-                McpStatus.Idle -> Icon(HugeIcons.MessageBlocked, null)
+                McpStatus.Idle -> Icon(
+                    if (item.commonOptions.skipStartupInitialization) {
+                        HugeIcons.McpServer
+                    } else {
+                        HugeIcons.MessageBlocked
+                    },
+                    null,
+                )
                 McpStatus.Connecting -> CircularProgressIndicator(
                     modifier = Modifier.size(
                         24.dp
@@ -352,6 +359,11 @@ private fun McpServerItem(
                         when (item) {
                             is McpServerConfig.SseTransportServer -> Text("SSE")
                             is McpServerConfig.StreamableHTTPServer -> Text("Streamable HTTP")
+                        }
+                    }
+                    if (item.commonOptions.skipStartupInitialization) {
+                        Tag(type = TagType.INFO) {
+                            Text(stringResource(R.string.setting_mcp_page_skip_startup_initialization))
                         }
                     }
                 }
@@ -430,6 +442,8 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
         val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: "streamable_http"
         val url = obj["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
         val disableToolNamePrefix = obj["disableToolNamePrefix"]?.jsonPrimitive?.booleanOrNull ?: false
+        val skipStartupInitialization =
+            obj["skipStartupInitialization"]?.jsonPrimitive?.booleanOrNull ?: false
         val enable = obj["enable"]?.jsonPrimitive?.booleanOrNull ?: true
         val headers = obj["headers"]?.jsonObject?.entries?.map { (k, v) ->
             k to (v.jsonPrimitive.contentOrNull ?: "")
@@ -446,6 +460,7 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
         val commonOptions = McpCommonOptions(
             enable = enable,
             name = name,
+            skipStartupInitialization = skipStartupInitialization,
             disableToolNamePrefix = disableToolNamePrefix,
             headers = headers,
             tools = tools,
@@ -473,6 +488,9 @@ private fun buildMcpServersJson(configs: List<McpServerConfig>): String {
                     })
                     if (!config.commonOptions.enable) {
                         put("enable", false)
+                    }
+                    if (config.commonOptions.skipStartupInitialization) {
+                        put("skipStartupInitialization", true)
                     }
                     if (config.commonOptions.disableToolNamePrefix) {
                         put("disableToolNamePrefix", true)
