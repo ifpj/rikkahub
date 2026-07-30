@@ -208,6 +208,22 @@ internal class McpSessionRegistry(
         sessions.values.toList().forEach { session -> syncSession(session) }
     }
 
+    suspend fun sync(configId: Uuid) {
+        val session = sessions[configId]
+        if (session != null) {
+            syncSession(session)
+            return
+        }
+
+        settingsStore.settingsFlow.value.mcpServers
+            .find {
+                it.id == configId &&
+                    it.commonOptions.enable &&
+                    it.commonOptions.name.isNotBlank()
+            }
+            ?.let { addClient(it) }
+    }
+
     private suspend fun connectSession(
         session: McpSession,
         requestedConfig: McpServerConfig,
