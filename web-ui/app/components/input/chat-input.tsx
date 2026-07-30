@@ -701,7 +701,7 @@ function ChatInputInner({
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <SearchPickerButton disabled={!canSwitchModel} />
+              <SearchPickerButton conversation={conversation} disabled={!canSwitchModel} />
               <McpPickerButton disabled={!canSwitchModel} />
               <ExtensionPickerButton
                 conversation={conversation}
@@ -715,8 +715,8 @@ function ChatInputInner({
               />
             </div>
             <div className="flex min-w-0 shrink-0 items-center gap-0.5 sm:gap-1">
-              <ModelList disabled={!canSwitchModel} className="max-w-[120px] sm:max-w-56" />
-              <ReasoningPickerButton disabled={!canSwitchModel} />
+              <ModelList conversation={conversation} disabled={!canSwitchModel} className="max-w-[120px] sm:max-w-56" />
+              <ReasoningPickerButton conversation={conversation} disabled={!canSwitchModel} />
               <Button
                 aria-label={canStop ? "停止生成" : "发送消息"}
                 title={sendHint}

@@ -7,7 +7,7 @@ import { useCurrentAssistant } from "~/hooks/use-current-assistant";
 import { getModelDisplayName } from "~/lib/display";
 import { cn } from "~/lib/utils";
 import api from "~/services/api";
-import type { ProviderModel } from "~/types";
+import type { ConversationDto, ProviderModel } from "~/types";
 import { AIIcon } from "~/components/ui/ai-icon";
 import { Button } from "~/components/ui/button";
 import {
@@ -22,6 +22,7 @@ import { ScrollArea } from "~/components/ui/scroll-area";
 export interface ModelListProps {
   disabled?: boolean;
   className?: string;
+  conversation?: ConversationDto | null;
   onChanged?: (model: ProviderModel) => void;
 }
 
@@ -117,7 +118,7 @@ function ModelOptionRow({
   );
 }
 
-export function ModelList({ disabled = false, className, onChanged }: ModelListProps) {
+export function ModelList({ disabled = false, className, conversation, onChanged }: ModelListProps) {
   const { t } = useTranslation("input");
   const { settings, currentAssistant } = useCurrentAssistant();
 
@@ -127,7 +128,13 @@ export function ModelList({ disabled = false, className, onChanged }: ModelListP
   const [updatingModelId, setUpdatingModelId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
-  const currentModelId = currentAssistant?.chatModelId ?? settings?.chatModelId ?? null;
+  const useConversationModel =
+    currentAssistant?.allowConversationModel === true && conversation != null;
+  const currentModelId =
+    (useConversationModel ? conversation.chatModelId : null) ??
+    currentAssistant?.chatModelId ??
+    settings?.chatModelId ??
+    null;
   const favoriteModelIds = settings?.favoriteModels ?? [];
   const favoriteModelIdSet = React.useMemo(() => new Set(favoriteModelIds), [favoriteModelIds]);
 
@@ -254,10 +261,16 @@ export function ModelList({ disabled = false, className, onChanged }: ModelListP
       setError(null);
 
       try {
-        await api.post<{ status: string }>("settings/assistant/model", {
-          assistantId: currentAssistant.id,
-          modelId: model.id,
-        });
+        if (useConversationModel && conversation) {
+          await api.post<{ status: string }>(`conversations/${conversation.id}/model`, {
+            modelId: model.id,
+          });
+        } else {
+          await api.post<{ status: string }>("settings/assistant/model", {
+            assistantId: currentAssistant.id,
+            modelId: model.id,
+          });
+        }
         onChanged?.(model);
         setOpen(false);
       } catch (changeError) {
@@ -270,7 +283,7 @@ export function ModelList({ disabled = false, className, onChanged }: ModelListP
         setUpdatingModelId(null);
       }
     },
-    [currentAssistant, currentModelId, disabled, onChanged, t],
+    [conversation, currentAssistant, currentModelId, disabled, onChanged, t, useConversationModel],
   );
 
   const handleToggleFavorite = React.useCallback(
