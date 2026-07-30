@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonArrayBuilder
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -36,6 +37,7 @@ import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.MessageChunk
 import me.rerere.ai.ui.OpenAIReasoningMetadata
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
@@ -199,6 +201,7 @@ class ResponseAPI(
     ): JsonObject {
         val host = providerSetting.baseUrl.toHttpUrl().host
         val capabilities = resolveResponseProviderCapabilities(host)
+        val includes = mutableListOf<String>()
         return buildJsonObject {
             put("model", params.model.modelId)
             put("stream", stream)
@@ -233,9 +236,7 @@ class ResponseAPI(
                     }
                 })
                 if (capabilities.supportEncryptedContent) {
-                    put("include", buildJsonArray {
-                        add("reasoning.encrypted_content")
-                    })
+                    includes += "reasoning.encrypted_content"
                 }
             }
 
@@ -268,6 +269,7 @@ class ResponseAPI(
                                 add(buildJsonObject {
                                     put("type", "web_search")
                                 })
+                                includes += "web_search_call.action.sources"
                             }
 
                             BuiltInTools.UrlContext -> {} // not supported
@@ -281,6 +283,11 @@ class ResponseAPI(
                         }
                     }
                 }
+            }
+            if (includes.isNotEmpty()) {
+                put("include", buildJsonArray {
+                    includes.distinct().forEach { add(it) }
+                })
             }
         }.mergeCustomBody(params.customBody)
     }
@@ -456,7 +463,7 @@ class ResponseAPI(
         })
     }
 
-    private fun parseResponseDelta(jsonObject: JsonObject): MessageChunk? {
+    internal fun parseResponseDelta(jsonObject: JsonObject): MessageChunk? {
         val chunkType = jsonObject["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
 
         when (chunkType) {
@@ -573,7 +580,45 @@ class ResponseAPI(
                             )
                         )
                     )
+                } else if (type == "web_search_call") {
+                    return webSearchChunk(
+                        id = id,
+                        status = item["status"]?.jsonPrimitive?.contentOrNull ?: "in_progress",
+                        action = item["action"] as? JsonObject,
+                    )
                 }
+            }
+
+            "response.web_search_call.in_progress",
+            "response.web_search_call.searching",
+            "response.web_search_call.completed" -> {
+                val id = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull ?: return null
+                return webSearchChunk(
+                    id = id,
+                    status = chunkType.substringAfterLast('.'),
+                )
+            }
+
+            "response.output_text.annotation.added" -> {
+                val annotation = (jsonObject["annotation"] as? JsonObject)
+                    ?.let(::parseResponseAnnotation)
+                    ?: return null
+                return MessageChunk(
+                    id = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull ?: "",
+                    model = "",
+                    choices = listOf(
+                        UIMessageChoice(
+                            index = 0,
+                            delta = UIMessage(
+                                role = MessageRole.ASSISTANT,
+                                parts = emptyList(),
+                                annotations = listOf(annotation),
+                            ),
+                            message = null,
+                            finishReason = null,
+                        )
+                    )
+                )
             }
 
             "response.output_item.done" -> {
@@ -626,6 +671,12 @@ class ResponseAPI(
                             )
                         )
                     )
+                } else if (type == "web_search_call") {
+                    return webSearchChunk(
+                        id = id,
+                        status = item["status"]?.jsonPrimitive?.contentOrNull ?: "completed",
+                        action = item["action"] as? JsonObject,
+                    )
                 }
             }
 
@@ -675,6 +726,7 @@ class ResponseAPI(
         println(jsonObject)
         val outputs = jsonObject["output"]?.jsonArray ?: error("output not found")
         val parts = arrayListOf<UIMessagePart>()
+        val annotations = arrayListOf<UIMessageAnnotation>()
 
         outputs.forEach { outputItem ->
             val output = outputItem.jsonObject
@@ -714,6 +766,10 @@ class ResponseAPI(
                     )
                 }
 
+                "web_search_call" -> {
+                    parts.add(parseWebSearchPart(output))
+                }
+
                 "message" -> {
                     val content = output["content"]?.jsonArray ?: error("content not found")
                     content.map { it.jsonObject }.forEach { part ->
@@ -726,6 +782,9 @@ class ResponseAPI(
                                         text = text
                                     )
                                 )
+                                (part["annotations"] as? JsonArray)?.mapNotNull { annotationElement ->
+                                    (annotationElement as? JsonObject)?.let(::parseResponseAnnotation)
+                                }?.let(annotations::addAll)
                             }
 
                             else -> error("unknown part type $partType")
@@ -744,6 +803,7 @@ class ResponseAPI(
                     message = UIMessage(
                         role = MessageRole.ASSISTANT,
                         parts = parts,
+                        annotations = annotations,
                     ),
                     finishReason = null,
                     delta = null
@@ -751,6 +811,63 @@ class ResponseAPI(
             ),
             usage = parseTokenUsage(jsonObject["usage"]?.jsonObject)
         )
+    }
+
+    private fun webSearchChunk(
+        id: String,
+        status: String,
+        action: JsonObject? = null,
+    ): MessageChunk = MessageChunk(
+        id = id,
+        model = "",
+        choices = listOf(
+            UIMessageChoice(
+                index = 0,
+                delta = UIMessage(
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(parseWebSearchPart(id, status, action)),
+                ),
+                message = null,
+                finishReason = null,
+            )
+        )
+    )
+
+    private fun parseWebSearchPart(output: JsonObject): UIMessagePart.WebSearch = parseWebSearchPart(
+        id = output["id"]?.jsonPrimitive?.contentOrNull ?: "",
+        status = output["status"]?.jsonPrimitive?.contentOrNull ?: "completed",
+        action = output["action"] as? JsonObject,
+    )
+
+    private fun parseWebSearchPart(
+        id: String,
+        status: String,
+        action: JsonObject?,
+    ): UIMessagePart.WebSearch {
+        val sources = (action?.get("sources") as? JsonArray)?.mapNotNull { source ->
+            (source as? JsonObject)?.get("url")?.jsonPrimitive?.contentOrNull
+        }.orEmpty()
+        return UIMessagePart.WebSearch(
+            id = id,
+            status = status,
+            actionType = action?.get("type")?.jsonPrimitive?.contentOrNull,
+            query = action?.get("query")?.jsonPrimitive?.contentOrNull,
+            url = action?.get("url")?.jsonPrimitive?.contentOrNull,
+            pattern = action?.get("pattern")?.jsonPrimitive?.contentOrNull,
+            sources = sources,
+        )
+    }
+
+    private fun parseResponseAnnotation(annotation: JsonObject): UIMessageAnnotation.UrlCitation? {
+        if (annotation["type"]?.jsonPrimitive?.contentOrNull != "url_citation") return null
+        val nested = annotation["url_citation"] as? JsonObject
+        val url = annotation["url"]?.jsonPrimitive?.contentOrNull
+            ?: nested?.get("url")?.jsonPrimitive?.contentOrNull
+            ?: return null
+        val title = annotation["title"]?.jsonPrimitive?.contentOrNull
+            ?: nested?.get("title")?.jsonPrimitive?.contentOrNull
+            ?: url
+        return UIMessageAnnotation.UrlCitation(title = title, url = url)
     }
 
     private fun parseTokenUsage(jsonObject: JsonObject?): TokenUsage? {
@@ -790,4 +907,3 @@ internal fun resolveResponseProviderCapabilities(host: String): ResponseProvider
         else -> ResponseProviderCapabilities()
     }
 }
-

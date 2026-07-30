@@ -135,6 +135,10 @@ function getQuickJumpPreview(
             name: truncatePreviewText(fallbackPart.toolName.trim(), 32),
           })
         : t("conversations.preview.tool_call");
+    case "web_search":
+      return fallbackPart.query?.trim()
+        ? truncatePreviewText(fallbackPart.query.trim(), 32)
+        : t("conversations.preview.thinking");
     case "text":
       return t("conversations.preview.empty_message");
   }

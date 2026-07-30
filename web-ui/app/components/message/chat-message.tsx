@@ -70,6 +70,7 @@ function hasRenderablePart(part: UIMessagePart): boolean {
     case "reasoning":
       return part.reasoning.trim().length > 0;
     case "tool":
+    case "web_search":
       return true;
   }
 }
@@ -90,6 +91,8 @@ function formatPartForCopy(part: UIMessagePart, t: TFunction): string | null {
       return part.reasoning;
     case "tool":
       return `[${t("chat_message.copy_tool")}] ${part.toolName}`;
+    case "web_search":
+      return `[${t("chat_message.copy_web_search")}] ${part.query ?? part.url ?? ""}`.trim();
   }
 }
 

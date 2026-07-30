@@ -1,5 +1,6 @@
 package me.rerere.ai.provider.providers.openai
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -15,6 +16,7 @@ import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -373,6 +375,46 @@ class ResponseAPIMessageTest {
         assertTrue("function tool should not be dropped", types.contains("function"))
         assertTrue("built-in web_search should be present", types.contains("web_search"))
         assertEquals(2, tools.size)
+        val includes = requestBody["include"]?.jsonArray?.map { it.jsonPrimitive.content }
+        assertTrue(includes?.contains("web_search_call.action.sources") == true)
+    }
+
+    @Test
+    fun `web search stream events should expose progress query and sources`() {
+        val added = api.parseResponseDelta(
+            Json.parseToJsonElement(
+                """{"type":"response.output_item.added","item":{"id":"ws_1","type":"web_search_call","status":"in_progress"}}"""
+            ).jsonObject
+        )
+        val addedPart = added!!.choices.single().delta!!.parts.single() as UIMessagePart.WebSearch
+        assertEquals("ws_1", addedPart.id)
+        assertEquals("in_progress", addedPart.status)
+
+        val done = api.parseResponseDelta(
+            Json.parseToJsonElement(
+                """{"type":"response.output_item.done","item":{"id":"ws_1","type":"web_search_call","status":"completed","action":{"type":"search","query":"latest news","sources":[{"type":"url","url":"https://example.com"}]}}}"""
+            ).jsonObject
+        )
+        val donePart = done!!.choices.single().delta!!.parts.single() as UIMessagePart.WebSearch
+        assertEquals("completed", donePart.status)
+        assertEquals("search", donePart.actionType)
+        assertEquals("latest news", donePart.query)
+        assertEquals(listOf("https://example.com"), donePart.sources)
+        assertEquals("latest news", addedPart.merge(donePart).query)
+    }
+
+    @Test
+    fun `web search citation stream event should create URL annotation`() {
+        val chunk = api.parseResponseDelta(
+            Json.parseToJsonElement(
+                """{"type":"response.output_text.annotation.added","item_id":"msg_1","annotation":{"type":"url_citation","url":"https://example.com/source","title":"Example source","start_index":0,"end_index":8}}"""
+            ).jsonObject
+        )
+
+        val annotation = chunk!!.choices.single().delta!!.annotations.single()
+            as UIMessageAnnotation.UrlCitation
+        assertEquals("Example source", annotation.title)
+        assertEquals("https://example.com/source", annotation.url)
     }
 
     @Test

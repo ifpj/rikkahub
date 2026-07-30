@@ -562,6 +562,10 @@ private fun MessagePartsBlock(
                         }
                     }
 
+                    is UIMessagePart.WebSearch -> {
+                        ChatMessageWebSearchPart(part)
+                    }
+
                     else -> {
                         // Skip unknown part types (e.g., deprecated ToolCall, ToolResult, Search)
                     }

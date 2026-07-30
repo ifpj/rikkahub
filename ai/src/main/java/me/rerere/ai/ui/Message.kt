@@ -119,6 +119,23 @@ data class UIMessage(
                         }
                     }
 
+                    is UIMessagePart.WebSearch -> {
+                        val existingPart = acc.find {
+                            it is UIMessagePart.WebSearch && it.id == deltaPart.id
+                        } as? UIMessagePart.WebSearch
+                        if (existingPart == null) {
+                            acc + deltaPart
+                        } else {
+                            acc.map { part ->
+                                if (part is UIMessagePart.WebSearch && part.id == deltaPart.id) {
+                                    part.merge(deltaPart)
+                                } else {
+                                    part
+                                }
+                            }
+                        }
+                    }
+
                     else -> {
                         println("delta part append not supported: $deltaPart")
                         acc
@@ -137,9 +154,7 @@ data class UIMessage(
                 }
             }
             // Handle annotations
-            val newAnnotations = delta.annotations.ifEmpty {
-                annotations
-            }
+            val newAnnotations = (annotations + delta.annotations).distinct()
             copy(
                 parts = newParts,
                 annotations = newAnnotations,
@@ -174,6 +189,7 @@ data class UIMessage(
             is UIMessagePart.Audio -> part.url.isNotBlank()
             is UIMessagePart.Document -> part.url.isNotBlank()
             is UIMessagePart.Reasoning -> part.reasoning.isNotBlank()
+            is UIMessagePart.WebSearch -> true
             else -> true
         }
     }
@@ -262,6 +278,7 @@ fun List<UIMessagePart>.isEmptyUIMessage(): Boolean {
             is UIMessagePart.Image -> message.url.isBlank()
             is UIMessagePart.Document -> message.url.isBlank()
             is UIMessagePart.Reasoning -> message.reasoning.isBlank()
+            is UIMessagePart.WebSearch -> false
             is UIMessagePart.Video -> message.url.isBlank()
             is UIMessagePart.Audio -> message.url.isBlank()
             else -> true
@@ -352,6 +369,31 @@ sealed class UIMessagePart {
         val finishedAt: Instant? = Clock.System.now(),
         override var metadata: JsonObject? = null
     ) : UIMessagePart()
+
+    @Serializable
+    @SerialName("web_search")
+    data class WebSearch(
+        val id: String,
+        val status: String = "in_progress",
+        val actionType: String? = null,
+        val query: String? = null,
+        val url: String? = null,
+        val pattern: String? = null,
+        val sources: List<String> = emptyList(),
+        override var metadata: JsonObject? = null,
+    ) : UIMessagePart() {
+        val isCompleted: Boolean get() = status == "completed"
+
+        fun merge(other: WebSearch): WebSearch = copy(
+            status = other.status,
+            actionType = other.actionType ?: actionType,
+            query = other.query ?: query,
+            url = other.url ?: url,
+            pattern = other.pattern ?: pattern,
+            sources = (sources + other.sources).distinct(),
+            metadata = other.metadata ?: metadata,
+        )
+    }
 
     @Deprecated("Deprecated")
     @Serializable
@@ -455,6 +497,7 @@ fun List<UIMessagePart>.toSortedMessageParts(): List<UIMessagePart> {
             is UIMessagePart.Reasoning -> -1
             is UIMessagePart.Text -> 0
             is UIMessagePart.Tool -> 0
+            is UIMessagePart.WebSearch -> 0
             is UIMessagePart.ToolCall -> 0
             is UIMessagePart.ToolResult -> 0
             is UIMessagePart.Search -> 0

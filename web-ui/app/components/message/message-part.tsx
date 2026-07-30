@@ -12,6 +12,7 @@ import { ReasoningStepPart } from "./parts/reasoning-step-part";
 import { TextPart } from "./parts/text-part";
 import { ToolPart as ToolStepPart } from "./parts/tool-part";
 import { VideoPart } from "./parts/video-part";
+import { WebSearchPart } from "./parts/web-search-part";
 
 type ThinkingStep =
   | {
@@ -95,6 +96,8 @@ function renderContentPart(
       return (
         <div className="text-xs text-muted-foreground">{t("message_parts.tool_step_hint")}</div>
       );
+    case "web_search":
+      return <WebSearchPart search={part} />;
   }
 }
 

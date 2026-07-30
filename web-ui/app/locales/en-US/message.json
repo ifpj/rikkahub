@@ -4,7 +4,12 @@
     "collapse_thinking": "Collapse thinking",
     "expand_thinking_steps": "Expand {{count}} thinking step(s)",
     "deep_thinking": "Deep Thinking",
-    "thinking_seconds": "Thought for {{seconds}} seconds"
+    "thinking_seconds": "Thought for {{seconds}} seconds",
+    "web_search_searching": "Searching the web…",
+    "web_search_searching_for": "Searching the web for “{{query}}”…",
+    "web_search_completed": "Searched the web",
+    "web_search_completed_for": "Searched the web for “{{query}}”",
+    "web_search_sources": "{{count}} sources"
   },
   "chat_message": {
     "copy_image": "Image",
@@ -12,6 +17,7 @@
     "copy_audio": "Audio",
     "copy_document": "Document",
     "copy_tool": "Tool",
+    "copy_web_search": "Web search",
     "regenerate_from_user_confirm": "Regenerate from this user message and continue?",
     "delete_confirm": "Delete this message?",
     "copy_message": "Copy message",

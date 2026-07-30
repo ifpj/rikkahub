@@ -4,7 +4,12 @@
     "collapse_thinking": "收起思考过程",
     "expand_thinking_steps": "展开 {{count}} 条思考步骤",
     "deep_thinking": "深度思考",
-    "thinking_seconds": "思考了 {{seconds}} 秒"
+    "thinking_seconds": "思考了 {{seconds}} 秒",
+    "web_search_searching": "正在搜索网络…",
+    "web_search_searching_for": "正在搜索“{{query}}”…",
+    "web_search_completed": "已完成网络搜索",
+    "web_search_completed_for": "已搜索“{{query}}”",
+    "web_search_sources": "{{count}} 个来源"
   },
   "chat_message": {
     "copy_image": "图片",
@@ -12,6 +17,7 @@
     "copy_audio": "音频",
     "copy_document": "文档",
     "copy_tool": "工具",
+    "copy_web_search": "网络搜索",
     "regenerate_from_user_confirm": "将从这条用户消息重新生成，确认继续吗？",
     "delete_confirm": "确认删除这条消息吗？",
     "copy_message": "复制消息",

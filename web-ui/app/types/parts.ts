@@ -56,6 +56,17 @@ export interface ToolPart extends BaseMessagePart {
   approvalState: ToolApprovalState;
 }
 
+export interface WebSearchPart extends BaseMessagePart {
+  type: "web_search";
+  id: string;
+  status: string;
+  actionType?: string | null;
+  query?: string | null;
+  url?: string | null;
+  pattern?: string | null;
+  sources: string[];
+}
+
 /**
  * Union type for all message parts
  * @see ai/src/main/java/me/rerere/ai/ui/Message.kt - UIMessagePart
@@ -67,4 +78,5 @@ export type UIMessagePart =
   | AudioPart
   | DocumentPart
   | ReasoningPart
-  | ToolPart;
+  | ToolPart
+  | WebSearchPart;
