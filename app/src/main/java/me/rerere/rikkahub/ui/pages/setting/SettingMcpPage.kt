@@ -368,30 +368,47 @@ private fun McpServerItem(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                when (status) {
-                    McpStatus.Idle -> Icon(
-                        if (item.commonOptions.skipStartupInitialization) {
-                            HugeIcons.McpServer
-                        } else {
-                            HugeIcons.MessageBlocked
-                        },
-                        null
-                    )
-                    McpStatus.Connecting -> CircularProgressIndicator(
-                        modifier = Modifier.size(
-                            24.dp
+                IconButton(
+                    enabled = item.commonOptions.enable &&
+                        status != McpStatus.Connecting &&
+                        status !is McpStatus.Reconnecting &&
+                        status != McpStatus.Authorizing,
+                    onClick = {
+                        scope.launch { mcpManager.sync(item) }
+                    }
+                ) {
+                    when (status) {
+                        McpStatus.Idle -> Icon(
+                            if (item.commonOptions.skipStartupInitialization) {
+                                HugeIcons.McpServer
+                            } else {
+                                HugeIcons.MessageBlocked
+                            },
+                            stringResource(R.string.setting_mcp_page_sync_server)
                         )
-                    )
+                        McpStatus.Connecting -> CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp)
+                        )
 
-                    McpStatus.Connected -> Icon(HugeIcons.McpServer, null)
-                    is McpStatus.Reconnecting -> CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp)
-                    )
-                    is McpStatus.Error -> Icon(HugeIcons.AlertCircle, null)
-                    McpStatus.NeedsAuthorization -> Icon(HugeIcons.AlertCircle, null)
-                    McpStatus.Authorizing -> CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp)
-                    )
+                        McpStatus.Connected -> Icon(
+                            HugeIcons.McpServer,
+                            stringResource(R.string.setting_mcp_page_sync_server)
+                        )
+                        is McpStatus.Reconnecting -> CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp)
+                        )
+                        is McpStatus.Error -> Icon(
+                            HugeIcons.AlertCircle,
+                            stringResource(R.string.setting_mcp_page_sync_server)
+                        )
+                        McpStatus.NeedsAuthorization -> Icon(
+                            HugeIcons.AlertCircle,
+                            stringResource(R.string.setting_mcp_page_sync_server)
+                        )
+                        McpStatus.Authorizing -> CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
 
                 Column(

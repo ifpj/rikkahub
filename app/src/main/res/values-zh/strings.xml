@@ -787,6 +787,7 @@
   <string name="setting_mcp_page_tools">工具</string>
   <string name="setting_mcp_page_tools_unavailable_message">添加MCP Server时无法查看工具列表，请添加完后再来查看</string>
   <string name="setting_mcp_page_tools_cached_message">已跳过启动时初始化，下面显示缓存的工具；可使用同步按钮刷新。</string>
+  <string name="setting_mcp_page_sync_server">同步此 MCP 服务</string>
   <string name="setting_mcp_page_transport_type">传输类型</string>
   <string name="setting_mcp_page_transport_type_desc">选择MCP服务器的传输协议类型</string>
   <string name="setting_mcp_page_url_label">URL</string>

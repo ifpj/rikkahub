@@ -795,6 +795,7 @@
   <string name="setting_mcp_page_tools">Tools</string>
   <string name="setting_mcp_page_tools_unavailable_message">Cannot view tool list when adding MCP Server, please check back after adding</string>
   <string name="setting_mcp_page_tools_cached_message">Startup initialization is deferred. The cached tools are shown below; use Sync to refresh them.</string>
+  <string name="setting_mcp_page_sync_server">Sync this MCP server</string>
   <string name="setting_mcp_page_transport_type">Transport Type</string>
   <string name="setting_mcp_page_transport_type_desc">Select the transport protocol type for the MCP server</string>
   <string name="setting_mcp_page_url_label">URL</string>
