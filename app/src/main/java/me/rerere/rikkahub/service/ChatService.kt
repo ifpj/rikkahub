@@ -265,16 +265,26 @@ class ChatService(
 
     // ---- 初始化对话 ----
 
-    suspend fun initializeConversation(conversationId: Uuid) {
-        withLoadedSession(conversationId) { session ->
-            settingsStore.selectAssistant(session.state.value.assistantId)
+    suspend fun initializeConversation(
+        conversationId: Uuid,
+        selectionTarget: AssistantSelectionTarget = AssistantSelectionTarget.APP,
+    ) {
+        sessionManager.withSession(conversationId) { session ->
+            ensureInitialized(session, selectionTarget)
+            when (selectionTarget) {
+                AssistantSelectionTarget.APP -> settingsStore.selectAssistant(session.state.value.assistantId)
+                AssistantSelectionTarget.WEB -> settingsStore.updateWebAssistant(session.state.value.assistantId)
+            }
         }
     }
 
-    private suspend fun ensureInitialized(session: ConversationSession) {
+    private suspend fun ensureInitialized(
+        session: ConversationSession,
+        selectionTarget: AssistantSelectionTarget = AssistantSelectionTarget.APP,
+    ) {
         session.initialize(
             load = { loadConversation(session.id) },
-            create = { newConversation(session.id) },
+            create = { newConversation(session.id, selectionTarget) },
         )
     }
 
@@ -295,8 +305,16 @@ class ChatService(
     }
 
     // 新建对话, 并添加预设消息
-    private suspend fun newConversation(conversationId: Uuid): Conversation {
-        val assistant = settingsStore.awaitLoaded().getCurrentAssistant()
+    private suspend fun newConversation(
+        conversationId: Uuid,
+        selectionTarget: AssistantSelectionTarget = AssistantSelectionTarget.APP,
+    ): Conversation {
+        val appSettings = settingsStore.awaitLoaded()
+        val currentSettings = when (selectionTarget) {
+            AssistantSelectionTarget.APP -> appSettings
+            AssistantSelectionTarget.WEB -> settingsStore.webSettingsFlow.first()
+        }
+        val assistant = currentSettings.getCurrentAssistant()
         return Conversation.ofId(
             id = conversationId,
             assistantId = assistant.id,
@@ -1334,4 +1352,9 @@ class ChatService(
         jobs.forEach { it.join() }
         if (session.isInitialized) finishInterruptedPendingTools(session)
     }
+}
+
+enum class AssistantSelectionTarget {
+    APP,
+    WEB,
 }

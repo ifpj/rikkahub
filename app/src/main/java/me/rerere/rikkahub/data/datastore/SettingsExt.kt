@@ -56,6 +56,13 @@ fun Settings.getAssistantById(id: Uuid): Assistant? {
     return this.assistants.find { it.id == id }
 }
 
+/** 选择的助手已被删除时回退到内置默认助手或列表首项。 */
+internal fun Settings.resolveAssistantId(id: Uuid?): Uuid {
+    return id?.takeIf { selectedId -> assistants.any { it.id == selectedId } }
+        ?: assistants.firstOrNull { it.id == DEFAULT_ASSISTANT_ID }?.id
+        ?: assistants.first().id
+}
+
 /** 该助手绑定的快捷消息，顺序跟随全局快捷消息列表。 */
 fun Settings.getQuickMessagesOfAssistant(assistant: Assistant) =
     quickMessages.filter { it.id in assistant.quickMessageIds }
