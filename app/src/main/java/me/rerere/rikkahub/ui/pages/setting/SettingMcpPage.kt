@@ -599,15 +599,8 @@ private fun McpCommonOptionsConfigure(
             },
             description = {
                 Text(stringResource(R.string.setting_mcp_page_enable_desc))
-            }
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.setting_mcp_page_enable))
-                Spacer(Modifier.weight(1f))
+            },
+            tail = {
                 Switch(
                     checked = config.commonOptions.enable,
                     onCheckedChange = { enabled ->
@@ -624,8 +617,8 @@ private fun McpCommonOptionsConfigure(
                         )
                     }
                 )
-            }
-        }
+            },
+        )
 
         HorizontalDivider()
 
@@ -635,15 +628,8 @@ private fun McpCommonOptionsConfigure(
             },
             description = {
                 Text(stringResource(R.string.setting_mcp_page_disable_tool_prefix_desc))
-            }
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.setting_mcp_page_disable_tool_prefix))
-                Spacer(Modifier.weight(1f))
+            },
+            tail = {
                 Switch(
                     checked = config.commonOptions.disableToolNamePrefix,
                     onCheckedChange = { disablePrefix ->
@@ -664,8 +650,8 @@ private fun McpCommonOptionsConfigure(
                         }
                     }
                 )
-            }
-        }
+            },
+        )
 
         HorizontalDivider()
 
@@ -695,7 +681,6 @@ private fun McpCommonOptionsConfigure(
                         }
                     )
                 },
-                label = { Text(stringResource(R.string.setting_mcp_page_name)) },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text(stringResource(R.string.setting_mcp_page_name_placeholder)) },
                 isError = nameInvalid,
@@ -794,7 +779,6 @@ private fun McpCommonOptionsConfigure(
                         }
                     )
                 },
-                label = { Text(stringResource(R.string.setting_mcp_page_url_label)) },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = {
                     Text(
