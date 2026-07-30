@@ -63,6 +63,7 @@ class WebServerManager(
         }
 
         appScope.launch {
+            settingsStore.resetWebAssistantSession()
             // 仅本机模式绑定回环地址
             val host = if (localhostOnly) HOST_LOOPBACK else HOST_ALL_INTERFACES
             val baseState = WebServerState(

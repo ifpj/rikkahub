@@ -11,7 +11,9 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.pebbletemplates.pebble.PebbleEngine
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -105,6 +107,10 @@ class SettingsStore(
 
         // 助手
         val SELECT_ASSISTANT = stringPreferencesKey("select_assistant")
+        val SELECT_WEB_ASSISTANT = stringPreferencesKey("select_web_assistant")
+        val SEPARATE_WEB_ASSISTANT = booleanPreferencesKey("separate_web_assistant")
+        val REMEMBER_APP_ASSISTANT = booleanPreferencesKey("remember_app_assistant")
+        val REMEMBER_WEB_ASSISTANT = booleanPreferencesKey("remember_web_assistant")
         val ASSISTANTS = stringPreferencesKey("assistants")
         val ASSISTANT_TAGS = stringPreferencesKey("assistant_tags")
 
@@ -182,6 +188,10 @@ class SettingsStore(
                 compressPrompt = preferences[COMPRESS_PROMPT] ?: DEFAULT_COMPRESS_PROMPT,
                 assistantId = preferences[SELECT_ASSISTANT]?.let { Uuid.parse(it) }
                     ?: DEFAULT_ASSISTANT_ID,
+                webAssistantId = preferences[SELECT_WEB_ASSISTANT]?.let { Uuid.parse(it) },
+                separateWebAssistant = preferences[SEPARATE_WEB_ASSISTANT] == true,
+                rememberAppAssistant = preferences[REMEMBER_APP_ASSISTANT] != false,
+                rememberWebAssistant = preferences[REMEMBER_WEB_ASSISTANT] != false,
                 assistantTags = preferences[ASSISTANT_TAGS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -334,7 +344,26 @@ class SettingsStore(
             get<PebbleEngine>().templateCache.invalidateAll()
         }
 
-    val settingsFlow = settingsFlowRaw
+    private val appAssistantId = MutableStateFlow<Uuid?>(null)
+    private val webAssistantId = MutableStateFlow<Uuid?>(null)
+
+    val settingsFlow = combine(settingsFlowRaw, appAssistantId) { settings, runtimeAssistantId ->
+        val selectedId = runtimeAssistantId
+            ?: settings.assistantId.takeIf { settings.rememberAppAssistant }
+        settings.copy(assistantId = settings.resolveAssistantId(selectedId))
+    }
+        .distinctUntilChanged()
+        .toMutableStateFlow(scope, Settings.dummy())
+
+    val webSettingsFlow = combine(settingsFlow, webAssistantId) { settings, runtimeAssistantId ->
+        if (!settings.separateWebAssistant) {
+            settings
+        } else {
+            val selectedId = runtimeAssistantId
+                ?: settings.webAssistantId.takeIf { settings.rememberWebAssistant }
+            settings.copy(assistantId = settings.resolveAssistantId(selectedId))
+        }
+    }
         .distinctUntilChanged()
         .toMutableStateFlow(scope, Settings.dummy())
 
@@ -343,7 +372,12 @@ class SettingsStore(
             Log.w(TAG, "Cannot update dummy settings")
             return
         }
-        settingsFlow.value = settings
+        val previousSettings = settingsFlow.value
+        val previousWebAssistantId = webSettingsFlow.value.assistantId
+        appAssistantId.value = settings.resolveAssistantId(settings.assistantId)
+        if (!previousSettings.init && !previousSettings.separateWebAssistant && settings.separateWebAssistant) {
+            webAssistantId.value = settings.resolveAssistantId(previousWebAssistantId)
+        }
         dataStore.edit { preferences ->
             preferences[DYNAMIC_COLOR] = settings.dynamicColor
             preferences[THEME_ID] = settings.themeId
@@ -375,7 +409,24 @@ class SettingsStore(
             preferences[PROVIDERS] = JsonInstant.encodeToString(settings.providers)
 
             preferences[ASSISTANTS] = JsonInstant.encodeToString(settings.assistants)
-            preferences[SELECT_ASSISTANT] = settings.assistantId.toString()
+            preferences[SEPARATE_WEB_ASSISTANT] = settings.separateWebAssistant
+            preferences[REMEMBER_APP_ASSISTANT] = settings.rememberAppAssistant
+            preferences[REMEMBER_WEB_ASSISTANT] = settings.rememberWebAssistant
+            if (settings.rememberAppAssistant) {
+                preferences[SELECT_ASSISTANT] = settings.assistantId.toString()
+            } else {
+                preferences.remove(SELECT_ASSISTANT)
+            }
+            if (settings.rememberWebAssistant) {
+                val selectedWebAssistantId = if (settings.separateWebAssistant) {
+                    settings.resolveAssistantId(webAssistantId.value ?: settings.webAssistantId)
+                } else {
+                    settings.assistantId
+                }
+                preferences[SELECT_WEB_ASSISTANT] = selectedWebAssistantId.toString()
+            } else {
+                preferences.remove(SELECT_WEB_ASSISTANT)
+            }
             preferences[ASSISTANT_TAGS] = JsonInstant.encodeToString(settings.assistantTags)
 
             preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(settings.searchServices)
@@ -411,9 +462,34 @@ class SettingsStore(
     }
 
     suspend fun updateAssistant(assistantId: Uuid) {
-        dataStore.edit { preferences ->
-            preferences[SELECT_ASSISTANT] = assistantId.toString()
+        val settings = settingsFlow.value
+        val selectedId = settings.resolveAssistantId(assistantId)
+        appAssistantId.value = selectedId
+        if (settings.rememberAppAssistant) {
+            dataStore.edit { preferences ->
+                preferences[SELECT_ASSISTANT] = selectedId.toString()
+            }
         }
+    }
+
+    suspend fun updateWebAssistant(assistantId: Uuid) {
+        val settings = settingsFlow.value
+        if (!settings.separateWebAssistant) {
+            updateAssistant(assistantId)
+            return
+        }
+
+        val selectedId = settings.resolveAssistantId(assistantId)
+        webAssistantId.value = selectedId
+        if (settings.rememberWebAssistant) {
+            dataStore.edit { preferences ->
+                preferences[SELECT_WEB_ASSISTANT] = selectedId.toString()
+            }
+        }
+    }
+
+    fun resetWebAssistantSession() {
+        webAssistantId.value = null
     }
 
     suspend fun updateAssistantModel(assistantId: Uuid, modelId: Uuid) {
@@ -522,6 +598,10 @@ data class Settings(
     val compressModelId: Uuid = Uuid.random(),
     val compressPrompt: String = DEFAULT_COMPRESS_PROMPT,
     val assistantId: Uuid = DEFAULT_ASSISTANT_ID,
+    val webAssistantId: Uuid? = null,
+    val separateWebAssistant: Boolean = false,
+    val rememberAppAssistant: Boolean = true,
+    val rememberWebAssistant: Boolean = true,
     val providers: List<ProviderSetting> = DEFAULT_PROVIDERS,
     val assistants: List<Assistant> = DEFAULT_ASSISTANTS,
     val assistantTags: List<Tag> = emptyList(),
@@ -665,6 +745,12 @@ fun Settings.getCurrentChatModel(conversation: Conversation?): Model? {
 
 fun Settings.getCurrentAssistant(): Assistant {
     return this.assistants.find { it.id == assistantId } ?: this.assistants.first()
+}
+
+internal fun Settings.resolveAssistantId(id: Uuid?): Uuid {
+    return id?.takeIf { selectedId -> assistants.any { it.id == selectedId } }
+        ?: assistants.firstOrNull { it.id == DEFAULT_ASSISTANT_ID }?.id
+        ?: assistants.first().id
 }
 
 fun Settings.getAssistantById(id: Uuid): Assistant? {

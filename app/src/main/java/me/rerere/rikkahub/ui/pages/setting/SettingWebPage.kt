@@ -268,6 +268,65 @@ fun SettingWebPage() {
                         },
                     )
                     item(
+                        headlineContent = { Text("分离 App 与 Web 助手") },
+                        supportingContent = {
+                            Text("开启后，两端可以各自选择助手，切换时不再互相影响")
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = settings.separateWebAssistant,
+                                onCheckedChange = { checked ->
+                                    scope.launch {
+                                        settingsStore.update {
+                                            it.copy(separateWebAssistant = checked)
+                                        }
+                                    }
+                                },
+                            )
+                        },
+                    )
+                    item(
+                        headlineContent = { Text("App 记住上次助手") },
+                        supportingContent = { Text("关闭后，下次启动 App 时恢复默认助手") },
+                        trailingContent = {
+                            Switch(
+                                checked = settings.rememberAppAssistant,
+                                onCheckedChange = { checked ->
+                                    scope.launch {
+                                        settingsStore.update {
+                                            it.copy(rememberAppAssistant = checked)
+                                        }
+                                    }
+                                },
+                            )
+                        },
+                    )
+                    item(
+                        headlineContent = { Text("Web 记住上次助手") },
+                        supportingContent = {
+                            Text(
+                                if (settings.separateWebAssistant) {
+                                    "关闭后，下次启动 Web 服务时恢复默认助手"
+                                } else {
+                                    "分离助手后生效；当前由 App 的记忆设置决定"
+                                }
+                            )
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = settings.rememberWebAssistant,
+                                onCheckedChange = { checked ->
+                                    scope.launch {
+                                        settingsStore.update {
+                                            it.copy(rememberWebAssistant = checked)
+                                        }
+                                    }
+                                },
+                                enabled = settings.separateWebAssistant,
+                            )
+                        },
+                    )
+                    item(
                         headlineContent = { Text(stringResource(R.string.setting_page_web_server_jwt_enable)) },
                         supportingContent = { Text(stringResource(R.string.setting_page_web_server_jwt_enable_desc)) },
                         trailingContent = {
