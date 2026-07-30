@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -412,10 +413,15 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
         val obj = element.jsonObject
         val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: "streamable_http"
         val url = obj["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+        val disableToolNamePrefix = obj["disableToolNamePrefix"]?.jsonPrimitive?.booleanOrNull ?: false
         val headers = obj["headers"]?.jsonObject?.entries?.map { (k, v) ->
             k to (v.jsonPrimitive.contentOrNull ?: "")
         } ?: emptyList()
-        val commonOptions = McpCommonOptions(name = name, headers = headers)
+        val commonOptions = McpCommonOptions(
+            name = name,
+            disableToolNamePrefix = disableToolNamePrefix,
+            headers = headers,
+        )
         when (type) {
             "sse" -> McpServerConfig.SseTransportServer(commonOptions = commonOptions, url = url)
             else -> McpServerConfig.StreamableHTTPServer(commonOptions = commonOptions, url = url)
@@ -437,6 +443,9 @@ private fun buildMcpServersJson(configs: List<McpServerConfig>): String {
                         is McpServerConfig.SseTransportServer -> config.url
                         is McpServerConfig.StreamableHTTPServer -> config.url
                     })
+                    if (config.commonOptions.disableToolNamePrefix) {
+                        put("disableToolNamePrefix", true)
+                    }
                     if (config.commonOptions.headers.isNotEmpty()) {
                         put(
                             "headers",
