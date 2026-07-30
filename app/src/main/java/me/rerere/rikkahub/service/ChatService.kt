@@ -47,6 +47,7 @@ import me.rerere.rikkahub.data.ai.TranslationHandler
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.tools.ChatToolFactory
 import me.rerere.rikkahub.data.ai.tools.InvalidMcpServerNamesException
+import me.rerere.rikkahub.data.ai.tools.DuplicateMcpToolNamesException
 import me.rerere.rikkahub.data.ai.tools.shouldUseExternalWebSearch
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.rerere.rikkahub.data.ai.transformers.DocumentAsPromptTransformer
@@ -644,6 +645,18 @@ class ChatService(
                     error = IllegalStateException(
                         context.getString(
                             R.string.error_mcp_invalid_server_name,
+                            error.names.joinToString(", "),
+                        )
+                    ),
+                    conversationId = conversationId,
+                )
+                return
+            } catch (error: DuplicateMcpToolNamesException) {
+                sessionManager.get(conversationId)?.messageQueue?.pause()
+                addError(
+                    error = IllegalStateException(
+                        context.getString(
+                            R.string.error_mcp_duplicate_tool_names,
                             error.names.joinToString(", "),
                         )
                     ),

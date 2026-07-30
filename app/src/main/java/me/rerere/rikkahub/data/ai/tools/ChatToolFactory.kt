@@ -25,6 +25,9 @@ internal fun shouldUseExternalWebSearch(assistant: Assistant, model: Model): Boo
 class InvalidMcpServerNamesException(val names: List<String>) :
     IllegalStateException("Invalid MCP server names: ${names.joinToString(", ")}")
 
+class DuplicateMcpToolNamesException(val names: List<String>) :
+    IllegalStateException("Duplicate MCP tool names: ${names.joinToString(", ")}")
+
 /** Creates the complete tool set for one generation run, including approval resumption. */
 class ChatToolFactory(
     private val json: Json,
@@ -75,20 +78,32 @@ class ChatToolFactory(
 
         val mcpTools = mcpManager.getAllAvailableTools()
         val invalidNames = mcpTools
-            .map { it.second }
+            .filterNot { it.server.commonOptions.disableToolNamePrefix }
+            .map { it.server.commonOptions.name }
             .distinct()
             .filter { name -> name.isEmpty() || !name.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' } }
         if (invalidNames.isNotEmpty()) {
             throw InvalidMcpServerNamesException(invalidNames)
         }
-        mcpTools.forEach { (serverId, serverName, tool) ->
+        val duplicateNames = (map { it.name } + mcpTools.map { it.nameForModel })
+            .groupingBy { it }
+            .eachCount()
+            .filterValues { it > 1 }
+            .keys
+            .sorted()
+        if (duplicateNames.isNotEmpty()) {
+            throw DuplicateMcpToolNamesException(duplicateNames)
+        }
+        mcpTools.forEach { availableTool ->
+            val server = availableTool.server
+            val tool = availableTool.tool
             add(
                 Tool(
-                    name = "mcp__${serverName}__${tool.name}",
+                    name = availableTool.nameForModel,
                     description = tool.description ?: "",
                     parameters = { tool.inputSchema },
                     needsApproval = { tool.needsApproval },
-                    execute = { mcpManager.callTool(serverId, tool.name, it.jsonObject) },
+                    execute = { mcpManager.callTool(server.id, tool.name, it.jsonObject) },
                 )
             )
         }
