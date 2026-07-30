@@ -22,12 +22,15 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -128,6 +131,10 @@ class SettingsStore internal constructor(
 
         // 助手
         val SELECT_ASSISTANT = stringPreferencesKey("select_assistant")
+        val SELECT_WEB_ASSISTANT = stringPreferencesKey("select_web_assistant")
+        val SEPARATE_WEB_ASSISTANT = booleanPreferencesKey("separate_web_assistant")
+        val REMEMBER_APP_ASSISTANT = booleanPreferencesKey("remember_app_assistant")
+        val REMEMBER_WEB_ASSISTANT = booleanPreferencesKey("remember_web_assistant")
         val ASSISTANTS = stringPreferencesKey("assistants")
         val ASSISTANT_TAGS = stringPreferencesKey("assistant_tags")
 
@@ -204,8 +211,26 @@ class SettingsStore internal constructor(
 
     private val state = MutableStateFlow(Settings.dummy())
 
-    /** 当前设置。加载完成前是 [Settings.dummy]，需要真实设置时用 [awaitLoaded]。 */
-    val settingsFlow: StateFlow<Settings> = state.asStateFlow()
+    private val appAssistantId = MutableStateFlow<Uuid?>(null)
+    private val webAssistantId = MutableStateFlow<Uuid?>(null)
+
+    /** 当前 App 设置。助手选择可按会话进程内覆盖持久化值。 */
+    val settingsFlow: StateFlow<Settings> = combine(state, appAssistantId) { settings, runtimeAssistantId ->
+        val selectedId = runtimeAssistantId
+            ?: settings.assistantId.takeIf { settings.rememberAppAssistant }
+        settings.copy(assistantId = settings.resolveAssistantId(selectedId))
+    }.stateIn(scope, SharingStarted.Eagerly, Settings.dummy())
+
+    /** Web 端设置视图；未启用独立选择时与 App 使用同一助手。 */
+    val webSettingsFlow: StateFlow<Settings> = combine(settingsFlow, webAssistantId) { settings, runtimeAssistantId ->
+        if (!settings.separateWebAssistant) {
+            settings
+        } else {
+            val selectedId = runtimeAssistantId
+                ?: settings.webAssistantId.takeIf { settings.rememberWebAssistant }
+            settings.copy(assistantId = settings.resolveAssistantId(selectedId))
+        }
+    }.stateIn(scope, SharingStarted.Eagerly, Settings.dummy())
 
     /** 等启动时的读盘完成后返回当前设置，不会返回 [Settings.dummy]。已经加载完时直接返回。 */
     suspend fun awaitLoaded(): Settings = state.first { !it.init }
@@ -220,7 +245,7 @@ class SettingsStore internal constructor(
     init {
         // 整份设置的 JSON 解码很重，不能放在主线程
         scope.launch(Dispatchers.Default) {
-            state.value = try {
+            val loaded = try {
                 preferencesFlow.first().toSettings().normalized()
             } catch (e: CancellationException) {
                 throw e
@@ -230,6 +255,9 @@ class SettingsStore internal constructor(
                 Runtime.getRuntime().halt(1)
                 throw e
             }
+            state.value = loaded
+            appAssistantId.value = loaded.assistantId
+            webAssistantId.value = loaded.webAssistantId
         }
     }
 
@@ -249,6 +277,7 @@ class SettingsStore internal constructor(
     suspend fun update(fn: (Settings) -> Settings) {
         // 加载完成前的修改等真实设置出来再应用。已加载时这里不能挂起：输入框、slider 依赖修改同步生效
         if (state.value.init) awaitLoaded()
+        val previous = settingsFlow.value
         synchronized(stateLock) {
             val updated = fn(state.value)
             if (updated.init) {
@@ -258,6 +287,10 @@ class SettingsStore internal constructor(
             // 规整会重建提供商、助手等对象，而界面按引用判断它们有没有变：规整没改动任何东西时保留传入的实例
             val normalized = updated.normalized()
             state.value = if (normalized == updated) updated else normalized
+        }
+        appAssistantId.value = state.value.assistantId
+        if (!previous.separateWebAssistant && state.value.separateWebAssistant) {
+            webAssistantId.value = webSettingsFlow.value.assistantId
         }
         persist()
     }
@@ -271,7 +304,11 @@ class SettingsStore internal constructor(
                 val latest = state.value
                 val base = persisted
                 if (latest !== base) {
-                    dataStore.edit { preferences -> preferences.putSettings(latest, base) }
+                    dataStore.edit { preferences ->
+                        preferences.putSettings(latest, base)
+                        if (!latest.rememberAppAssistant) preferences.remove(SettingsStore.SELECT_ASSISTANT)
+                        if (!latest.rememberWebAssistant) preferences.remove(SettingsStore.SELECT_WEB_ASSISTANT)
+                    }
                     persisted = latest
                 }
             }
@@ -294,7 +331,25 @@ class SettingsStore internal constructor(
 
     /** 切换当前选中的助手。 */
     suspend fun selectAssistant(assistantId: Uuid) {
-        update { it.copy(assistantId = assistantId) }
+        val selectedId = awaitLoaded().resolveAssistantId(assistantId)
+        appAssistantId.value = selectedId
+        update { it.copy(assistantId = selectedId) }
+    }
+
+    /** 切换 Web 端当前选中的助手。未启用独立选择时与 App 端共用。 */
+    suspend fun updateWebAssistant(assistantId: Uuid) {
+        val settings = webSettingsFlow.value
+        if (!settings.separateWebAssistant) {
+            selectAssistant(assistantId)
+            return
+        }
+        val selectedId = settings.resolveAssistantId(assistantId)
+        webAssistantId.value = selectedId
+        update { it.copy(webAssistantId = selectedId) }
+    }
+
+    fun resetWebAssistantSession() {
+        webAssistantId.value = null
     }
 
     private suspend fun updateAssistant(assistantId: Uuid, transform: (Assistant) -> Assistant) {

@@ -20,6 +20,7 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
+import me.rerere.rikkahub.service.AssistantSelectionTarget
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.web.BadRequestException
 import me.rerere.rikkahub.web.NotFoundException
@@ -57,7 +58,7 @@ fun Route.conversationRoutes(
     route("/conversations") {
         // GET /api/conversations - List conversations of current assistant
         get {
-            val settings = settingsStore.awaitLoaded()
+            val settings = settingsStore.webSettingsFlow.first()
             val generationJobs = chatService.getConversationJobs().first()
             val conversations = conversationRepo
                 .getConversationsOfAssistant(settings.assistantId)
@@ -71,7 +72,7 @@ fun Route.conversationRoutes(
         // GET /api/conversations/paged?offset=0&limit=20&query=foo&folderId=none|<uuid>
         // folderId: absent = all conversations, "none" = unfiled only, <uuid> = that folder
         get("/paged") {
-            val settings = settingsStore.awaitLoaded()
+            val settings = settingsStore.webSettingsFlow.first()
             val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
             val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 20
             val query = call.request.queryParameters["query"]?.trim().orEmpty()
@@ -323,7 +324,7 @@ fun Route.conversationRoutes(
             val uuid = call.parameters["id"].toUuid("conversation id")
             val request = call.receive<SendMessageRequest>()
 
-            chatService.initializeConversation(uuid)
+            chatService.initializeConversation(uuid, AssistantSelectionTarget.WEB)
             chatService.sendMessage(uuid, request.parts, answer = true)
 
             call.respond(HttpStatusCode.Accepted, mapOf("status" to "accepted"))
@@ -335,7 +336,7 @@ fun Route.conversationRoutes(
             val messageId = call.parameters["messageId"].toUuid("message id")
             val request = call.receive<EditMessageRequest>()
 
-            chatService.initializeConversation(uuid)
+            chatService.initializeConversation(uuid, AssistantSelectionTarget.WEB)
             chatService.editMessage(uuid, messageId, request.parts)
 
             call.respond(HttpStatusCode.Accepted, mapOf("status" to "accepted"))
@@ -347,7 +348,7 @@ fun Route.conversationRoutes(
             val request = call.receive<ForkConversationRequest>()
             val messageId = request.messageId.toUuid("message id")
 
-            chatService.initializeConversation(uuid)
+            chatService.initializeConversation(uuid, AssistantSelectionTarget.WEB)
             val fork = chatService.forkConversationAtMessage(uuid, messageId)
 
             call.respond(HttpStatusCode.Created, ForkConversationResponse(conversationId = fork.id.toString()))
@@ -358,7 +359,7 @@ fun Route.conversationRoutes(
             val uuid = call.parameters["id"].toUuid("conversation id")
             val messageId = call.parameters["messageId"].toUuid("message id")
 
-            chatService.initializeConversation(uuid)
+            chatService.initializeConversation(uuid, AssistantSelectionTarget.WEB)
             chatService.deleteMessage(uuid, messageId)
 
             call.respond(HttpStatusCode.OK, mapOf("status" to "deleted"))
@@ -370,7 +371,7 @@ fun Route.conversationRoutes(
             val nodeId = call.parameters["nodeId"].toUuid("node id")
             val request = call.receive<SelectMessageNodeRequest>()
 
-            chatService.initializeConversation(uuid)
+            chatService.initializeConversation(uuid, AssistantSelectionTarget.WEB)
             chatService.selectMessageNode(uuid, nodeId, request.selectIndex)
 
             call.respond(HttpStatusCode.Accepted, mapOf("status" to "accepted"))
@@ -411,9 +412,9 @@ fun Route.conversationRoutes(
             val id = call.parameters["id"] ?: return@sse
             val uuid = runCatching { Uuid.parse(id) }.getOrNull() ?: return@sse
 
+            chatService.initializeConversation(uuid, AssistantSelectionTarget.WEB)
             chatService.addConversationReference(uuid)
             try {
-                chatService.initializeConversation(uuid)
                 heartbeat {
                     period = 1.seconds
                 }

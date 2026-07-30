@@ -299,18 +299,32 @@ class ChatService(
 
     // ---- 初始化对话 ----
 
-    suspend fun initializeConversation(conversationId: Uuid) {
+    suspend fun initializeConversation(
+        conversationId: Uuid,
+        selectionTarget: AssistantSelectionTarget = AssistantSelectionTarget.APP,
+    ) {
         sessionManager.withSession(conversationId) { session ->
-            ensureInitialized(session)
-            settingsStore.selectAssistant(session.state.value.assistantId)
+            ensureInitialized(session, selectionTarget)
+        }
+        val assistantId = getConversationFlow(conversationId).value.assistantId
+        when (selectionTarget) {
+            AssistantSelectionTarget.APP -> settingsStore.updateAssistant(assistantId)
+            AssistantSelectionTarget.WEB -> settingsStore.updateWebAssistant(assistantId)
         }
     }
 
-    private suspend fun ensureInitialized(session: ConversationSession) {
+    private suspend fun ensureInitialized(
+        session: ConversationSession,
+        selectionTarget: AssistantSelectionTarget = AssistantSelectionTarget.APP,
+    ) {
         session.initialize {
             loadConversation(session.id) ?: run {
                 // 新建对话, 并添加预设消息
-                val assistant = settingsStore.awaitLoaded().getCurrentAssistant()
+                val currentSettings = when (selectionTarget) {
+                    AssistantSelectionTarget.APP -> settingsStore.settingsFlow.first()
+                    AssistantSelectionTarget.WEB -> settingsStore.webSettingsFlow.first()
+                }
+                val assistant = currentSettings.getCurrentAssistant()
                 Conversation.ofId(
                     id = session.id,
                     assistantId = assistant.id,
@@ -1563,4 +1577,9 @@ class ChatService(
         jobs.forEach { it.join() }
         finishInterruptedPendingTools(conversationId)
     }
+}
+
+enum class AssistantSelectionTarget {
+    APP,
+    WEB,
 }

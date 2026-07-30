@@ -95,6 +95,14 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
 
         // 助手
         uuid(SELECT_ASSISTANT, Settings::assistantId) { copy(assistantId = it) },
+        SettingsField(
+            SELECT_WEB_ASSISTANT, Settings::webAssistantId, { copy(webAssistantId = it) },
+            encode = { it?.toString() },
+            decode = { Uuid.parse(it) },
+        ),
+        plain(SEPARATE_WEB_ASSISTANT, Settings::separateWebAssistant) { copy(separateWebAssistant = it) },
+        plain(REMEMBER_APP_ASSISTANT, Settings::rememberAppAssistant) { copy(rememberAppAssistant = it) },
+        plain(REMEMBER_WEB_ASSISTANT, Settings::rememberWebAssistant) { copy(rememberWebAssistant = it) },
         json(ASSISTANTS, Settings::assistants) { copy(assistants = it) },
         json(ASSISTANT_TAGS, Settings::assistantTags) { copy(assistantTags = it) },
 
