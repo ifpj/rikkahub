@@ -823,10 +823,6 @@
   <string name="setting_page_share">共有</string>
   <string name="setting_page_share_desc">このアプリを友達と共有</string>
   <string name="setting_page_share_text">RikkaHub - オープンソースAndroid AIアシスタント\n\nウェブサイト: https://rikka-ai.com/</string>
-  <string name="setting_page_sponsor_alert_confirm">寄付</string>
-  <string name="setting_page_sponsor_alert_desc">アプリを100回以上起動しました！気に入っていただけたら、開発者をサポートしていただけると嬉しいです。</string>
-  <string name="setting_page_sponsor_alert_dismiss">今はしない</string>
-  <string name="setting_page_sponsor_alert_title">開発者を支援する</string>
   <string name="setting_page_theme_setting">テーマ</string>
   <string name="setting_page_theme_setting_desc">アプリの配色をカスタマイズ</string>
   <string name="setting_theme_page_preset_themes">プリセットテーマ</string>
@@ -1037,7 +1033,6 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="stats_page_heatmap_more">もっと見る</string>
   <string name="stats_page_heatmap_title">チャットヒートマップ</string>
   <string name="stats_page_input_tokens">入力トークン</string>
-  <string name="stats_page_launch_count">アプリ起動回数</string>
   <string name="stats_page_output_tokens">出力トークン</string>
   <string name="stats_page_title">統計</string>
   <string name="stats_page_total_conversations">総会話数</string>

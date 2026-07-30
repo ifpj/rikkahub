@@ -823,10 +823,6 @@
   <string name="setting_page_share">공유</string>
   <string name="setting_page_share_desc">앱을 친구들과 공유하기</string>
   <string name="setting_page_share_text">RikkaHub - 오픈소스 Android AI 어시스턴트\n\n웹사이트: https://rikka-ai.com/</string>
-  <string name="setting_page_sponsor_alert_confirm">기부하기</string>
-  <string name="setting_page_sponsor_alert_desc">앱을 100번 이상 실행하셨네요! 만족스럽게 사용하고 계시다면 개발자를 후원해 주세요.</string>
-  <string name="setting_page_sponsor_alert_dismiss">나중에</string>
-  <string name="setting_page_sponsor_alert_title">개발자 지원하기</string>
   <string name="setting_page_theme_setting">테마</string>
   <string name="setting_page_theme_setting_desc">앱 색상 구성 사용자 지정</string>
   <string name="setting_theme_page_preset_themes">프리셋 테마</string>
@@ -1037,7 +1033,6 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="stats_page_heatmap_more">더보기</string>
   <string name="stats_page_heatmap_title">채팅 히트맵</string>
   <string name="stats_page_input_tokens">입력 토큰</string>
-  <string name="stats_page_launch_count">앱 실행 횟수</string>
   <string name="stats_page_output_tokens">출력 토큰</string>
   <string name="stats_page_title">통계</string>
   <string name="stats_page_total_conversations">총 대화 수</string>

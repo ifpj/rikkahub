@@ -85,23 +85,7 @@ class RikkaHubApp : Application() {
         // Start WebServer if enabled in settings
         startWebServerIfEnabled()
 
-        // Increment launch count
-        incrementLaunchCount()
-
         // Composer.setDiagnosticStackTraceMode(ComposeStackTraceMode.Auto)
-    }
-
-    private fun incrementLaunchCount() {
-        get<AppScope>().launch {
-            runCatching {
-                val store = get<SettingsStore>()
-                val current = store.settingsFlowRaw.first()
-                store.update(current.copy(launchCount = current.launchCount + 1))
-                Log.i(TAG, "incrementLaunchCount: ${store.settingsFlowRaw.first().launchCount}")
-            }.onFailure {
-                Log.e(TAG, "incrementLaunchCount failed", it)
-            }
-        }
     }
 
     private fun cleanupWorkspaceTempDirs() {

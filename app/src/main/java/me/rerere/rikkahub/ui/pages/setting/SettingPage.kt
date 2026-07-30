@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -62,7 +60,6 @@ import me.rerere.hugeicons.stroke.ServerStack01
 import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.hugeicons.stroke.Share04
 import me.rerere.hugeicons.stroke.Sun01
-import me.rerere.hugeicons.stroke.WavingHand01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.isNotConfigured
@@ -89,32 +86,6 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
     val navController = LocalNavController.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val filesManager: FilesManager = koinInject()
-
-    if (settings.launchCount > 100 && (settings.launchCount - settings.sponsorAlertDismissedAt) >= 50) {
-        AlertDialog(
-            onDismissRequest = {
-                vm.updateSettings(settings.copy(sponsorAlertDismissedAt = settings.launchCount))
-            },
-            icon = { Icon(HugeIcons.WavingHand01, null) },
-            title = { Text(stringResource(R.string.setting_page_sponsor_alert_title)) },
-            text = { Text(stringResource(R.string.setting_page_sponsor_alert_desc)) },
-            confirmButton = {
-                Button(onClick = {
-                    vm.updateSettings(settings.copy(sponsorAlertDismissedAt = settings.launchCount))
-                    navController.navigate(Screen.SettingDonate)
-                }) {
-                    Text(stringResource(R.string.setting_page_sponsor_alert_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    vm.updateSettings(settings.copy(sponsorAlertDismissedAt = settings.launchCount))
-                }) {
-                    Text(stringResource(R.string.setting_page_sponsor_alert_dismiss))
-                }
-            },
-        )
-    }
 
     Scaffold(
         topBar = {
