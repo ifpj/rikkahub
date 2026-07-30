@@ -151,6 +151,10 @@ export interface Settings {
   favoriteModels: string[];
   chatModelId: string;
   assistantId: string;
+  webAssistantId: string | null;
+  separateWebAssistant: boolean;
+  rememberAppAssistant: boolean;
+  rememberWebAssistant: boolean;
   providers: ProviderProfile[];
   assistants: AssistantProfile[];
   assistantTags: AssistantTag[];
