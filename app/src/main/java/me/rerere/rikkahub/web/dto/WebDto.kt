@@ -63,6 +63,11 @@ data class UpdateConversationInjectionsRequest(
 )
 
 @Serializable
+data class UpdateConversationModelRequest(
+    val modelId: String,
+)
+
+@Serializable
 data class CreateFolderRequest(
     val name: String
 )
@@ -193,6 +198,7 @@ data class ConversationDto(
     val modeInjectionIds: List<String> = emptyList(),
     val lorebookIds: List<String> = emptyList(),
     val workspaceCwd: String? = null,
+    val chatModelId: String? = null,
     val folderId: String? = null,
     val createAt: Long,
     val updateAt: Long,
@@ -334,6 +340,7 @@ fun Conversation.toDto(isGenerating: Boolean = false) = ConversationDto(
     modeInjectionIds = modeInjectionIds.map { it.toString() },
     lorebookIds = lorebookIds.map { it.toString() },
     workspaceCwd = workspaceCwd,
+    chatModelId = chatModelId?.toString(),
     folderId = folderId?.toString(),
     createAt = createAt.toEpochMilli(),
     updateAt = updateAt.toEpochMilli(),

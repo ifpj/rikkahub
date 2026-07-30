@@ -702,9 +702,9 @@ function ChatInputInner({
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <ModelList disabled={!canSwitchModel} className="max-w-64" />
-              <SearchPickerButton disabled={!canSwitchModel} />
-              <ReasoningPickerButton disabled={!canSwitchModel} />
+              <ModelList conversation={conversation} disabled={!canSwitchModel} className="max-w-64" />
+              <SearchPickerButton conversation={conversation} disabled={!canSwitchModel} />
+              <ReasoningPickerButton conversation={conversation} disabled={!canSwitchModel} />
               <McpPickerButton disabled={!canSwitchModel} />
               <ExtensionPickerButton
                 conversation={conversation}

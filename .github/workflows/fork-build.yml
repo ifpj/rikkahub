@@ -49,8 +49,9 @@ jobs:
           FORK_VERSION="${UPSTREAM_VERSION}-${FORK_USER}-${AHEAD}"
           echo "fork_version=$FORK_VERSION" >> "$GITHUB_OUTPUT"
 
-          # 计算 fork versionCode: upstreamVC * 10000 + ahead 提交数
-          FORK_VC=$((UPSTREAM_VC * 10000 + AHEAD))
+          # versionCode 使用单调递增的 workflow run number，避免 rebase/squash 后回退。
+          # 上游 versionCode 每次升级仍会切换到新的 10000 区间。
+          FORK_VC=$((UPSTREAM_VC * 10000 + ${{ github.run_number }}))
           echo "fork_version_code=$FORK_VC" >> "$GITHUB_OUTPUT"
 
           echo "Fork version: $FORK_VERSION (versionCode: $FORK_VC)"
@@ -128,7 +129,8 @@ jobs:
 
       - name: Publish release
         uses: softprops/action-gh-release@v3.0.2
-        if: success()
+        # 功能分支只构建，不得污染 releases/latest。
+        if: success() && github.ref == 'refs/heads/master'
         with:
           tag_name: ${{ steps.version.outputs.fork_version }}
           name: ${{ steps.version.outputs.fork_version }}
@@ -141,4 +143,6 @@ jobs:
             - 版本号: `${{ steps.version.outputs.fork_version }}`
             - 构建分支: `${{ github.ref_name }}`
             - 构建 commit: `${{ github.sha }}`
-          files: app/build/outputs/apk/release/*.apk
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/schemas/me.rerere.rikkahub.data.db.AppDatabase/25.json
