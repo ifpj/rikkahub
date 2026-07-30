@@ -15,7 +15,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+import me.rerere.ai.provider.ModelType
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.service.ChatService
@@ -37,6 +39,7 @@ import me.rerere.rikkahub.web.dto.SendMessageRequest
 import me.rerere.rikkahub.web.dto.ToolApprovalRequest
 import me.rerere.rikkahub.web.dto.MessageSearchResultDto
 import me.rerere.rikkahub.web.dto.UpdateConversationInjectionsRequest
+import me.rerere.rikkahub.web.dto.UpdateConversationModelRequest
 import me.rerere.rikkahub.web.dto.UpdateConversationTitleRequest
 import me.rerere.rikkahub.web.dto.toDto
 import me.rerere.rikkahub.web.dto.toListDto
@@ -226,6 +229,29 @@ fun Route.conversationRoutes(
 
             val isGenerating = chatService.getGenerationJobStateFlow(uuid).first() != null
             call.respond(HttpStatusCode.OK, updatedConversation.toDto(isGenerating))
+        }
+
+        // POST /api/conversations/{id}/model - Update the conversation-scoped chat model
+        post("/{id}/model") {
+            val uuid = call.parameters["id"].toUuid("conversation id")
+            val request = call.receive<UpdateConversationModelRequest>()
+            val modelId = request.modelId.toUuid("modelId")
+            val conversation = conversationRepo.getConversationById(uuid)
+                ?: throw NotFoundException("Conversation not found")
+            val settings = settingsStore.settingsFlow.first()
+            val assistant = settings.assistants.firstOrNull { it.id == conversation.assistantId }
+                ?: throw NotFoundException("Assistant not found")
+            if (!assistant.allowConversationModel) {
+                throw BadRequestException("Conversation model selection is not enabled for this assistant")
+            }
+            val model = settings.findModelById(modelId)
+                ?: throw NotFoundException("Model not found")
+            if (model.type != ModelType.CHAT) {
+                throw BadRequestException("modelId must be a chat model")
+            }
+
+            chatService.saveConversation(uuid, conversation.copy(chatModelId = modelId))
+            call.respond(HttpStatusCode.OK, mapOf("status" to "updated"))
         }
 
         // POST /api/conversations/{id}/move - Move conversation to another assistant

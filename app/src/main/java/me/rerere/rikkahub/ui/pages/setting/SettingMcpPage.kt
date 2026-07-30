@@ -76,8 +76,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -165,12 +167,26 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                     }
                     IconButton(
                         onClick = {
-                            val json = buildMcpServersJson(mcpConfigs)
-                            context.writeClipboardText(json)
-                            toaster.show(
-                                context.getString(R.string.setting_mcp_page_export_copied),
-                                type = ToastType.Success,
-                            )
+                            val duplicateNames = mcpConfigs
+                                .map { it.commonOptions.name }
+                                .filter { it.isNotBlank() }
+                                .groupingBy { it }
+                                .eachCount()
+                                .filterValues { it > 1 }
+                                .keys
+                            if (duplicateNames.isNotEmpty()) {
+                                toaster.show(
+                                    "MCP 服务名称重复，无法导出：${duplicateNames.joinToString()}",
+                                    type = ToastType.Error,
+                                )
+                            } else {
+                                val json = buildMcpServersJson(mcpConfigs)
+                                context.writeClipboardText(json)
+                                toaster.show(
+                                    context.getString(R.string.setting_mcp_page_export_copied),
+                                    type = ToastType.Success,
+                                )
+                            }
                         }
                     ) {
                         Icon(HugeIcons.FileDownload, null)
@@ -535,7 +551,10 @@ private fun McpServerConfigModal(
                     TextButton(
                         onClick = {
                             if (config.commonOptions.name.isNotBlank() &&
-                                (config.commonOptions.disableToolNamePrefix || isValidMcpName(config.commonOptions.name))
+                                (config.commonOptions.disableToolNamePrefix || isValidMcpName(config.commonOptions.name)) &&
+                                allConfigs.none {
+                                    it.id != config.id && it.commonOptions.name == config.commonOptions.name
+                                }
                             ) {
                                 state.confirm()
                             }
@@ -673,6 +692,9 @@ private fun McpCommonOptionsConfigure(
         ) {
             val nameInvalid = !config.commonOptions.disableToolNamePrefix &&
                 !isValidMcpName(config.commonOptions.name)
+            val nameDuplicate = allConfigs.any {
+                it.id != config.id && it.commonOptions.name == config.commonOptions.name
+            }
             OutlinedTextField(
                 value = config.commonOptions.name,
                 onValueChange = { name ->
@@ -690,10 +712,12 @@ private fun McpCommonOptionsConfigure(
                 },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text(stringResource(R.string.setting_mcp_page_name_placeholder)) },
-                isError = nameInvalid,
-                supportingText = if (nameInvalid) {
-                    { Text(stringResource(R.string.setting_mcp_page_name_invalid)) }
-                } else null
+                isError = nameInvalid || nameDuplicate,
+                supportingText = when {
+                    nameInvalid -> ({ Text(stringResource(R.string.setting_mcp_page_name_invalid)) })
+                    nameDuplicate -> ({ Text("MCP 服务名称不能重复") })
+                    else -> null
+                }
             )
         }
 
@@ -1098,13 +1122,25 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
         val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: "streamable_http"
         val url = obj["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
         val disableToolNamePrefix = obj["disableToolNamePrefix"]?.jsonPrimitive?.booleanOrNull ?: false
+        val enable = obj["enable"]?.jsonPrimitive?.booleanOrNull ?: true
         val headers = obj["headers"]?.jsonObject?.entries?.map { (k, v) ->
             k to (v.jsonPrimitive.contentOrNull ?: "")
         } ?: emptyList()
+        val tools = obj["toolOptions"]?.jsonArray?.mapNotNull toolOptions@{ toolElement ->
+            val tool = toolElement.jsonObject
+            val toolName = tool["name"]?.jsonPrimitive?.contentOrNull ?: return@toolOptions null
+            McpTool(
+                name = toolName,
+                enable = tool["enable"]?.jsonPrimitive?.booleanOrNull ?: true,
+                needsApproval = tool["needsApproval"]?.jsonPrimitive?.booleanOrNull ?: false,
+            )
+        } ?: emptyList()
         val commonOptions = McpCommonOptions(
+            enable = enable,
             name = name,
             disableToolNamePrefix = disableToolNamePrefix,
             headers = headers,
+            tools = tools,
         )
         when (type) {
             "sse" -> McpServerConfig.SseTransportServer(commonOptions = commonOptions, url = url)
@@ -1127,6 +1163,9 @@ private fun buildMcpServersJson(configs: List<McpServerConfig>): String {
                         is McpServerConfig.SseTransportServer -> config.url
                         is McpServerConfig.StreamableHTTPServer -> config.url
                     })
+                    if (!config.commonOptions.enable) {
+                        put("enable", false)
+                    }
                     if (config.commonOptions.disableToolNamePrefix) {
                         put("disableToolNamePrefix", true)
                     }
@@ -1136,6 +1175,22 @@ private fun buildMcpServersJson(configs: List<McpServerConfig>): String {
                             buildJsonObject {
                                 config.commonOptions.headers.forEach { (key, value) ->
                                     put(key, value)
+                                }
+                            }
+                        )
+                    }
+                    if (config.commonOptions.tools.isNotEmpty()) {
+                        put(
+                            "toolOptions",
+                            buildJsonArray {
+                                config.commonOptions.tools.forEach { tool ->
+                                    add(
+                                        buildJsonObject {
+                                            put("name", tool.name)
+                                            if (!tool.enable) put("enable", false)
+                                            if (tool.needsApproval) put("needsApproval", true)
+                                        }
+                                    )
                                 }
                             }
                         )

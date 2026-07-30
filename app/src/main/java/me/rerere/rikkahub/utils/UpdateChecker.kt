@@ -43,7 +43,7 @@ class UpdateChecker(private val client: OkHttpClient) {
                         UpdateInfo(
                             version = release.tagName,
                             publishedAt = release.publishedAt,
-                            changelog = release.body,
+                            changelog = release.body.orEmpty(),
                             downloads = release.assets.map { asset ->
                                 UpdateDownload(
                                     name = asset.name,
@@ -114,7 +114,7 @@ data class UpdateInfo(
 private data class GitHubRelease(
     @kotlinx.serialization.SerialName("tag_name") val tagName: String,
     @kotlinx.serialization.SerialName("published_at") val publishedAt: String,
-    val body: String,
+    val body: String? = null,
     val assets: List<GitHubAsset>
 )
 

@@ -655,13 +655,12 @@ fun Settings.getCurrentChatModel(): Model? {
 }
 
 fun Settings.getCurrentChatModel(conversation: Conversation?): Model? {
-    val assistant = this.getCurrentAssistant()
-    val modelId = if (assistant.allowConversationModel && conversation?.chatModelId != null) {
-        conversation.chatModelId
-    } else {
-        assistant.chatModelId ?: this.chatModelId
-    }
-    return findModelById(modelId)
+    val assistant = conversation?.let { getAssistantById(it.assistantId) } ?: getCurrentAssistant()
+    return sequenceOf(
+        conversation?.chatModelId?.takeIf { assistant.allowConversationModel },
+        assistant.chatModelId,
+        chatModelId,
+    ).filterNotNull().mapNotNull { findModelById(it) }.firstOrNull()
 }
 
 fun Settings.getCurrentAssistant(): Assistant {

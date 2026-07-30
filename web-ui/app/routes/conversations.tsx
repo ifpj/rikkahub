@@ -720,7 +720,6 @@ function ConversationsPageInner() {
   const { panel, closePanel } = useWorkbench();
 
   const { settings, assistants, currentAssistantId, currentAssistant } = useCurrentAssistant();
-  const { currentModel, currentProvider } = useCurrentModel();
   const {
     folders,
     selectedFolderId,
@@ -752,6 +751,7 @@ function ConversationsPageInner() {
 
   const { detail, detailLoading, detailError, selectedNodeMessages, resetDetail } =
     useConversationDetail(activeId, updateConversationSummary);
+  const { currentModel, currentProvider } = useCurrentModel(detail);
 
   const {
     draftKey,

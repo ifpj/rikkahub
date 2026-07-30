@@ -11,7 +11,7 @@ import { usePickerPopover } from "~/hooks/use-picker-popover";
 import { extractErrorMessage } from "~/lib/error";
 import { cn } from "~/lib/utils";
 import api from "~/services/api";
-import type { ProviderModel } from "~/types";
+import type { ConversationDto, ProviderModel } from "~/types";
 import { Button } from "~/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 
@@ -33,6 +33,7 @@ interface ReasoningPreset {
 export interface ReasoningPickerButtonProps {
   disabled?: boolean;
   className?: string;
+  conversation?: ConversationDto | null;
 }
 
 function isReasoningModel(model: ProviderModel | null): boolean {
@@ -94,10 +95,10 @@ function ReasoningSlider({
   );
 }
 
-export function ReasoningPickerButton({ disabled = false, className }: ReasoningPickerButtonProps) {
+export function ReasoningPickerButton({ disabled = false, className, conversation }: ReasoningPickerButtonProps) {
   const { t } = useTranslation("input");
   const { settings, currentAssistant } = useCurrentAssistant();
-  const { currentModel } = useCurrentModel();
+  const { currentModel } = useCurrentModel(conversation);
 
   const canUse = Boolean(settings && currentAssistant && !disabled);
   const canReasoning = isReasoningModel(currentModel);

@@ -91,6 +91,7 @@ export interface ConversationDto {
   modeInjectionIds?: string[];
   lorebookIds?: string[];
   workspaceCwd?: string | null;
+  chatModelId?: string | null;
   folderId?: string | null;
   createAt: number;
   updateAt: number;

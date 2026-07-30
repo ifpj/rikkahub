@@ -203,8 +203,12 @@ export default function Markdown({
             let resolvedSrc = src || "";
             if (resolvedSrc.startsWith("/workspace/") && workspaceId) {
               const relativePath = resolvedSrc.slice("/workspace/".length);
+              const encodedRelativePath = relativePath
+                .split("/")
+                .map((segment) => encodeURIComponent(segment))
+                .join("/");
               resolvedSrc = appendWebAuthQuery(
-                `/api/files/path/workspaces/${workspaceId}/files/${relativePath}`,
+                `/api/files/path/workspaces/${encodeURIComponent(workspaceId)}/files/${encodedRelativePath}`,
               );
             } else {
               resolvedSrc = resolveFileUrl(resolvedSrc);

@@ -11,7 +11,7 @@ import { usePickerPopover } from "~/hooks/use-picker-popover";
 import { extractErrorMessage } from "~/lib/error";
 import { cn } from "~/lib/utils";
 import api from "~/services/api";
-import type { BuiltInTool, ProviderModel, ProviderProfile, SearchServiceOption } from "~/types";
+import type { BuiltInTool, ConversationDto, ProviderModel, ProviderProfile, SearchServiceOption } from "~/types";
 import { AIIcon } from "~/components/ui/ai-icon";
 import { Button } from "~/components/ui/button";
 import {
@@ -49,6 +49,7 @@ const SEARCH_SERVICE_LABELS: Record<string, string> = {
 export interface SearchPickerButtonProps {
   disabled?: boolean;
   className?: string;
+  conversation?: ConversationDto | null;
 }
 
 function getToolType(tool: BuiltInTool | string | null | undefined): string | null {
@@ -122,10 +123,10 @@ function getServiceLabel(service: SearchServiceOption, t: TFunction): string {
   return SEARCH_SERVICE_LABELS[type] ?? type;
 }
 
-export function SearchPickerButton({ disabled = false, className }: SearchPickerButtonProps) {
+export function SearchPickerButton({ disabled = false, className, conversation }: SearchPickerButtonProps) {
   const { t } = useTranslation("input");
   const { settings, currentAssistant } = useCurrentAssistant();
-  const { currentModel, currentProvider } = useCurrentModel();
+  const { currentModel, currentProvider } = useCurrentModel(conversation);
 
   const canUse = Boolean(settings && currentAssistant && !disabled);
   const { error, setError, popoverProps } = usePickerPopover(canUse);
