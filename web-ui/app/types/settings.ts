@@ -89,6 +89,7 @@ export interface McpToolOption {
 export interface McpCommonOptions {
   enable: boolean;
   name: string;
+  skipStartupInitialization?: boolean;
   tools: McpToolOption[];
   [key: string]: unknown;
 }

@@ -9,6 +9,7 @@ import kotlin.uuid.Uuid
 data class McpCommonOptions(
     val enable: Boolean = true,
     val name: String = "",
+    val skipStartupInitialization: Boolean = false,
     val disableToolNamePrefix: Boolean = false,
     val headers: List<Pair<String, String>> = emptyList(),
     val tools: List<McpTool> = emptyList(),
