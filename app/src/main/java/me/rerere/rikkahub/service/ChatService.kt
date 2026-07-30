@@ -114,6 +114,7 @@ internal fun createForkConversation(
     modeInjectionIds = source.modeInjectionIds,
     lorebookIds = source.lorebookIds,
     workspaceCwd = source.workspaceCwd,
+    chatModelId = source.chatModelId,
     folderId = source.folderId,
 )
 
@@ -597,13 +598,19 @@ class ChatService(
         val initialConversation = getConversationFlow(conversationId).value
         val assistant = settings.getAssistantById(initialConversation.assistantId)
             ?: settings.getCurrentAssistant()
-        val modelId = if (assistant.allowConversationModel && initialConversation.chatModelId != null) {
-            initialConversation.chatModelId
-        } else {
-            assistant.chatModelId ?: settings.chatModelId
-        }
-        val model = settings.findModelById(modelId)
-            ?: throw IllegalStateException("No chat model selected")
+        val model = sequenceOf(
+            initialConversation.chatModelId.takeIf { assistant.allowConversationModel },
+            assistant.chatModelId,
+            settings.chatModelId,
+        ).filterNotNull().mapNotNull { settings.findModelById(it) }.firstOrNull()
+            ?: run {
+                addError(
+                    IllegalStateException("No available chat model. Please select a model in settings."),
+                    conversationId,
+                    title = context.getString(R.string.error_title_operation),
+                )
+                return
+            }
 
         val senderName = if (assistant.useAssistantAvatar) {
             assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }

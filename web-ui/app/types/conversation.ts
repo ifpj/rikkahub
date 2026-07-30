@@ -26,6 +26,8 @@ export interface Conversation {
   lorebookIds?: string[];
   /** Absolute path inside the workspace rootfs */
   workspaceCwd?: string | null;
+  /** Per-conversation chat model override. */
+  chatModelId?: string | null;
   /** 所属文件夹（助手内分组），null 表示未归入任何文件夹 */
   folderId?: string | null;
   createAt: number;
