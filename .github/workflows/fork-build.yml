@@ -145,4 +145,3 @@ jobs:
             - 构建 commit: `${{ github.sha }}`
           files: |
             app/build/outputs/apk/release/*.apk
-            app/schemas/me.rerere.rikkahub.data.db.AppDatabase/25.json
