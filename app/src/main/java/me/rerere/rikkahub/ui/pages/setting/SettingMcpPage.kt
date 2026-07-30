@@ -78,6 +78,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -105,6 +106,7 @@ import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.ai.mcp.McpStatus
 import me.rerere.rikkahub.data.ai.mcp.McpTool
+import me.rerere.rikkahub.data.ai.mcp.findDuplicateMcpToolNames
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.FormItem
 import me.rerere.rikkahub.ui.components.ui.Switch
@@ -253,8 +255,8 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
             }
         }
     }
-    McpServerConfigModal(creationState)
-    McpServerConfigModal(editState)
+    McpServerConfigModal(creationState, mcpConfigs)
+    McpServerConfigModal(editState, mcpConfigs)
     if (showImportDialog) {
         McpImportModal(
             onDismiss = { showImportDialog = false },
@@ -461,7 +463,10 @@ private fun McpServerItem(
 }
 
 @Composable
-private fun McpServerConfigModal(state: EditState<McpServerConfig>) {
+private fun McpServerConfigModal(
+    state: EditState<McpServerConfig>,
+    allConfigs: List<McpServerConfig>,
+) {
     state.EditStateContent { config, updateValue ->
         val pagerState = rememberPagerState { 2 }
         val scope = rememberCoroutineScope()
@@ -515,7 +520,8 @@ private fun McpServerConfigModal(state: EditState<McpServerConfig>) {
                         0 -> {
                             McpCommonOptionsConfigure(
                                 config = config,
-                                update = updateValue
+                                allConfigs = allConfigs,
+                                update = updateValue,
                             )
                         }
 
@@ -533,7 +539,9 @@ private fun McpServerConfigModal(state: EditState<McpServerConfig>) {
                 ) {
                     TextButton(
                         onClick = {
-                            if (config.commonOptions.name.isNotBlank() && isValidMcpName(config.commonOptions.name)) {
+                            if (config.commonOptions.name.isNotBlank() &&
+                                (config.commonOptions.disableToolNamePrefix || isValidMcpName(config.commonOptions.name))
+                            ) {
                                 state.confirm()
                             }
                         }
@@ -549,8 +557,45 @@ private fun McpServerConfigModal(state: EditState<McpServerConfig>) {
 @Composable
 private fun McpCommonOptionsConfigure(
     config: McpServerConfig,
-    update: (McpServerConfig) -> Unit
+    allConfigs: List<McpServerConfig>,
+    update: (McpServerConfig) -> Unit,
 ) {
+    var pendingPrefixConflicts by remember { mutableStateOf<List<String>?>(null) }
+
+    pendingPrefixConflicts?.let { conflicts ->
+        AlertDialog(
+            onDismissRequest = { pendingPrefixConflicts = null },
+            title = { Text(stringResource(R.string.setting_mcp_page_prefix_conflict_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.setting_mcp_page_prefix_conflict_desc,
+                        conflicts.joinToString(", ")
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        update(
+                            config.clone(
+                                commonOptions = config.commonOptions.copy(disableToolNamePrefix = true)
+                            )
+                        )
+                        pendingPrefixConflicts = null
+                    }
+                ) {
+                    Text(stringResource(R.string.setting_mcp_page_prefix_conflict_disable_anyway))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingPrefixConflicts = null }) {
+                    Text(stringResource(R.string.setting_mcp_page_prefix_conflict_keep_prefix))
+                }
+            },
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -596,6 +641,46 @@ private fun McpCommonOptionsConfigure(
 
         HorizontalDivider()
 
+        FormItem(
+            label = {
+                Text(stringResource(R.string.setting_mcp_page_disable_tool_prefix))
+            },
+            description = {
+                Text(stringResource(R.string.setting_mcp_page_disable_tool_prefix_desc))
+            }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(stringResource(R.string.setting_mcp_page_disable_tool_prefix))
+                Spacer(Modifier.weight(1f))
+                Switch(
+                    checked = config.commonOptions.disableToolNamePrefix,
+                    onCheckedChange = { disablePrefix ->
+                        val updatedConfig = config.clone(
+                            commonOptions = config.commonOptions.copy(
+                                disableToolNamePrefix = disablePrefix
+                            )
+                        )
+                        if (!disablePrefix) {
+                            update(updatedConfig)
+                        } else {
+                            val conflicts = findDuplicateMcpToolNames(allConfigs, updatedConfig)
+                            if (conflicts.isEmpty()) {
+                                update(updatedConfig)
+                            } else {
+                                pendingPrefixConflicts = conflicts
+                            }
+                        }
+                    }
+                )
+            }
+        }
+
+        HorizontalDivider()
+
         // 名称输入框
         FormItem(
             label = {
@@ -605,7 +690,8 @@ private fun McpCommonOptionsConfigure(
                 Text(stringResource(R.string.setting_mcp_page_name_desc))
             }
         ) {
-            val nameInvalid = !isValidMcpName(config.commonOptions.name)
+            val nameInvalid = !config.commonOptions.disableToolNamePrefix &&
+                !isValidMcpName(config.commonOptions.name)
             OutlinedTextField(
                 value = config.commonOptions.name,
                 onValueChange = { name ->
@@ -1042,10 +1128,15 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
         val obj = element.jsonObject
         val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: "streamable_http"
         val url = obj["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+        val disableToolNamePrefix = obj["disableToolNamePrefix"]?.jsonPrimitive?.booleanOrNull ?: false
         val headers = obj["headers"]?.jsonObject?.entries?.map { (k, v) ->
             k to (v.jsonPrimitive.contentOrNull ?: "")
         } ?: emptyList()
-        val commonOptions = McpCommonOptions(name = name, headers = headers)
+        val commonOptions = McpCommonOptions(
+            name = name,
+            disableToolNamePrefix = disableToolNamePrefix,
+            headers = headers,
+        )
         when (type) {
             "sse" -> McpServerConfig.SseTransportServer(commonOptions = commonOptions, url = url)
             else -> McpServerConfig.StreamableHTTPServer(commonOptions = commonOptions, url = url)
@@ -1067,6 +1158,9 @@ private fun buildMcpServersJson(configs: List<McpServerConfig>): String {
                         is McpServerConfig.SseTransportServer -> config.url
                         is McpServerConfig.StreamableHTTPServer -> config.url
                     })
+                    if (config.commonOptions.disableToolNamePrefix) {
+                        put("disableToolNamePrefix", true)
+                    }
                     if (config.commonOptions.headers.isNotEmpty()) {
                         put(
                             "headers",

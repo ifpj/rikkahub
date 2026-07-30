@@ -17,8 +17,12 @@ class McpConnectionKeyTest {
                 tools = listOf(McpTool(name = "search", enable = false))
             )
         )
+        val withoutPrefix = base.copy(
+            commonOptions = base.commonOptions.copy(disableToolNamePrefix = true)
+        )
 
         assertEquals(base.connectionKey(), withTools.connectionKey())
+        assertEquals(base.connectionKey(), withoutPrefix.connectionKey())
     }
 
     @Test
