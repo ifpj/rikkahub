@@ -33,6 +33,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import me.rerere.ai.ui.DiffMetadata
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.highlight.CodeHighlightText
