@@ -109,7 +109,10 @@ object ToolUIRegistry {
         ReadFileToolUI,
         WriteFileToolUI,
         ShellToolUI,
-    ).plus(MemoryFileToolUI.all).associateBy { it.toolName }
+    ).plus(MemoryFileToolUI.all).associateBy { it.toolName } + mapOf(
+        "workspace_shell_wait" to ShellToolUI,
+        "workspace_shell_write" to ShellToolUI,
+    )
 
     /** 查找工具对应的渲染器, 未注册时返回默认渲染器 */
     fun resolve(toolName: String): ToolUIRenderer = renderers[toolName] ?: DefaultToolUIRenderer

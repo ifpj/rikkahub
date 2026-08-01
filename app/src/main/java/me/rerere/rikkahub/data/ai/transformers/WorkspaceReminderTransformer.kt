@@ -216,23 +216,13 @@ private fun buildWorkspacePrompt(
     )
     appendLine("  - `workspace_shell`: run shell commands (the files area is mounted at /workspace).")
     appendLine(
-        "  - `workspace_shell_output` / `workspace_shell_kill`: read the output of, or stop, a command started with `run_in_background`."
+        "  - When `workspace_shell` returns `status=running`, use `workspace_shell_wait` with its session ID " +
+            "until it completes. Use `workspace_shell_write` to send stdin, close stdin, or terminate it."
     )
-    appendLine(
-        "- Start long-running commands such as dev servers, watchers or long builds with `run_in_background` instead of appending `&`: processes left running with `&` are killed when the shell call returns. When a background command finishes you are notified with its exit code and the last lines of its output, so do not poll it; keep working on anything that does not depend on it, or end your reply if there is nothing else to do."
-    )
-    appendLine(
-        "- Prefer `workspace_shell` for tasks that standard Unix tools handle well, and prefer `workspace_edit_file` for targeted edits over rewriting whole files."
-    )
-    appendLine(
-        "- The skills directory is mounted at `/skills`. Each skill is a subdirectory `/skills/<skill-name>/` containing a `SKILL.md` (with `name` and `description` frontmatter) plus any supporting files. Read a skill's `SKILL.md` before using it, and follow its instructions."
-    )
-    appendLine(
-        "- Built-in skills shipped with the app are mounted at `/builtin_skills/<skill-name>/` with the same layout. Treat `/builtin_skills` as READ-ONLY: you may read files and run scripts there, but never modify, overwrite, or delete anything. A skill in `/skills` with the same name overrides the built-in one."
-    )
-    appendLine(
-        "- Files the user uploaded are mounted at `/upload`. Treat `/upload` as READ-ONLY: read uploaded files from `/upload/<file-name>`, but never modify, overwrite, or delete anything there. If you need to change an uploaded file, copy it into `/workspace` first and edit the copy."
-    )
+    appendLine("- Prefer `workspace_shell` for tasks that standard Unix tools handle well, and prefer `workspace_edit_file` for targeted edits over rewriting whole files.")
+    appendLine("- The skills directory is mounted at `/skills`. Each skill is a subdirectory `/skills/<skill-name>/` containing a `SKILL.md` (with `name` and `description` frontmatter) plus any supporting files. Read a skill's `SKILL.md` before using it, and follow its instructions.")
+    appendLine("- Built-in skills shipped with the app are mounted at `/builtin_skills/<skill-name>/` with the same layout. Treat `/builtin_skills` as READ-ONLY: you may read files and run scripts there, but never modify, overwrite, or delete anything. A skill in `/skills` with the same name overrides the built-in one.")
+    appendLine("- Files the user uploaded are mounted at `/upload`. Treat `/upload` as READ-ONLY: read uploaded files from `/upload/<file-name>`, but never modify, overwrite, or delete anything there. If you need to change an uploaded file, copy it into `/workspace` first and edit the copy.")
     if (!cwd.isNullOrBlank()) {
         appendLine(
             "- Current working directory: `$cwd`. Use this as the default context for file operations and shell commands."

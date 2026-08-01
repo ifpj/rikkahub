@@ -18,12 +18,14 @@ class ProotShellRunner(
     private val nativeLibraryDir: File,
     private val patcher: RootfsPatcher = RootfsPatcher(),
 ) : WorkspaceShellRunner {
-    override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
-        unavailableReason(context)?.let { reason ->
-            return WorkspaceCommandResult(
-                exitCode = 127,
-                stdout = "",
-                stderr = reason,
+    override fun start(context: WorkspaceShellContext): WorkspaceShellProcess {
+        if (!WorkspaceManager.isUsableRootfs(context.linuxDir)) {
+            return WorkspaceShellProcess.completed(
+                WorkspaceCommandResult(
+                    exitCode = 127,
+                    stdout = "",
+                    stderr = "Rootfs is not installed",
+                )
             )
         }
         val pidFile = File(context.linuxDir, "${EXEC_DIR.trimStart('/')}/${UUID.randomUUID()}.pid")
@@ -39,19 +41,26 @@ class ProotShellRunner(
         }
     }
 
-    override fun startBackground(context: WorkspaceShellContext, id: String): WorkspaceBackgroundCommand {
-        unavailableReason(context)?.let { error(it) }
-        // 日志放在 Rootfs 的 /tmp 下, 模型可以用 shell 直接 tail/grep; 应用启动时随 /tmp 一起清理
-        val dir = File(context.linuxDir, BACKGROUND_DIR.trimStart('/')).apply { mkdirs() }
-        val logFile = File(dir, "$id.log")
-        val pidFile = File(dir, "$id.pid")
-        val process = processBuilder(context, buildCommand(context, TRACKED_SCRIPT, "$BACKGROUND_DIR/$id.pid"))
-            .redirectErrorStream(true)
-            .redirectOutput(logFile)
-            .redirectInput(File("/dev/null"))
-            .start()
-        return ProotBackgroundCommand(process, logFile, "$BACKGROUND_DIR/$id.log", pidFile)
-    }
+        val proot = File(nativeLibraryDir, PROOT_EXEC)
+        val loader = File(nativeLibraryDir, PROOT_LOADER)
+        if (!proot.isFile) {
+            return WorkspaceShellProcess.completed(
+                WorkspaceCommandResult(
+                    exitCode = 127,
+                    stdout = "",
+                    stderr = "proot executable not found: ${proot.absolutePath}",
+                )
+            )
+        }
+        if (!loader.isFile) {
+            return WorkspaceShellProcess.completed(
+                WorkspaceCommandResult(
+                    exitCode = 127,
+                    stdout = "",
+                    stderr = "proot loader not found: ${loader.absolutePath}",
+                )
+            )
+        }
 
     private fun unavailableReason(context: WorkspaceShellContext): String? = when {
         !WorkspaceManager.isUsableRootfs(context.linuxDir) -> "Rootfs is not installed"
@@ -77,6 +86,9 @@ class ProotShellRunner(
                 environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
                 environment()["TMPDIR"] = context.tempDir.absolutePath
             }
+            .start()
+
+        return WorkspaceShellProcess.start(process, context.timeoutMillis, context.stdin)
     }
 
     override fun terminalLaunch(context: WorkspaceTerminalContext): WorkspaceTerminalLaunch {
