@@ -31,6 +31,9 @@ import java.util.concurrent.TimeUnit
 import kotlin.io.encoding.Base64
 import kotlin.uuid.Uuid
 
+private const val METASO_MCP_HOST = "metaso.cn"
+private const val METASO_MCP_PATH = "/api/mcp"
+
 /**
  * MCP 子系统的公共入口。
  *
@@ -49,6 +52,24 @@ class McpManager(
         .writeTimeout(120, TimeUnit.SECONDS)
         .followSslRedirects(true)
         .followRedirects(true)
+        .addInterceptor { chain ->
+            val request = chain.request()
+            val response = chain.proceed(request)
+            val isMetasoMcpRequest = request.url.scheme == "https" &&
+                request.url.host.equals(METASO_MCP_HOST, ignoreCase = true) &&
+                request.url.encodedPath == METASO_MCP_PATH
+            val hasIncorrectEmptyResponseContentType = response.code == 204 &&
+                response.header("Content-Type")?.startsWith("text/html", ignoreCase = true) == true
+
+            if (isMetasoMcpRequest && hasIncorrectEmptyResponseContentType) {
+                // Metaso returns an empty initialized response with an HTML content type.
+                response.newBuilder()
+                    .removeHeader("Content-Type")
+                    .build()
+            } else {
+                response
+            }
+        }
         .build()
 
     private val httpClient = HttpClient(OkHttp) {
