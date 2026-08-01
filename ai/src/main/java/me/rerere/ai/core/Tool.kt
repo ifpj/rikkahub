@@ -15,7 +15,9 @@ data class Tool(
     val parameters: () -> InputSchema? = { null },
     val systemPrompt: (model: Model, messages: List<UIMessage>) -> String = { _, _ -> "" },
     val needsApproval: (JsonElement) -> Boolean = { false },
-    val execute: suspend (JsonElement) -> List<UIMessagePart>
+    val execute: suspend (JsonElement) -> List<UIMessagePart>,
+    /** Returns the next output snapshot, or null when this tool no longer needs automatic continuation. */
+    val continueExecution: (suspend (List<UIMessagePart>) -> List<UIMessagePart>?)? = null,
 )
 
 @Serializable

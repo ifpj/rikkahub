@@ -49,18 +49,38 @@ class ProotShellRunner(
 
         context.tempDir.mkdirs()
         patcher.patch(context.linuxDir)
-        val process = ProcessBuilder(buildCommand(context, proot))
+        val command = buildCommand(context, proot)
+        if (context.usePty) {
+            val backend = WorkspacePtyProcess.start(
+                command = proot.absolutePath,
+                cwd = context.filesDir.absolutePath,
+                args = command.drop(1).toTypedArray(),
+                environment = processEnvironment(context, loader),
+                rows = context.terminalRows,
+                columns = context.terminalColumns,
+            )
+            return WorkspaceShellProcess.start(backend, context.timeoutMillis, context.stdin)
+        }
+
+        val process = ProcessBuilder(command)
             .directory(context.filesDir)
             .redirectErrorStream(false)
             .apply {
-                environment()["PROOT_LOADER"] = loader.absolutePath
-                environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
-                environment()["TMPDIR"] = context.tempDir.absolutePath
+                processEnvironment(context, loader).forEach { entry ->
+                    val (name, value) = entry.split('=', limit = 2)
+                    environment()[name] = value
+                }
             }
             .start()
 
         return WorkspaceShellProcess.start(process, context.timeoutMillis, context.stdin)
     }
+
+    private fun processEnvironment(context: WorkspaceShellContext, loader: File): Array<String> = arrayOf(
+        "PROOT_LOADER=${loader.absolutePath}",
+        "PROOT_TMP_DIR=${context.tempDir.absolutePath}",
+        "TMPDIR=${context.tempDir.absolutePath}",
+    )
 
     private fun buildCommand(
         context: WorkspaceShellContext,

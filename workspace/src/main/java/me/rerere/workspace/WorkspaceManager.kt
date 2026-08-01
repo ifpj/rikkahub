@@ -211,8 +211,19 @@ class WorkspaceManager(
         cwd: String = "",
         timeoutMillis: Long = DEFAULT_COMMAND_TIMEOUT_MS,
         yieldMillis: Long = DEFAULT_SESSION_YIELD_MS,
+        terminalRows: Int = DEFAULT_TERMINAL_ROWS,
+        terminalColumns: Int = DEFAULT_TERMINAL_COLUMNS,
     ): WorkspaceShellSessionResult {
-        val context = createShellContext(root, command, cwd, timeoutMillis, stdin = null)
+        val context = createShellContext(
+            root = root,
+            command = command,
+            cwd = cwd,
+            timeoutMillis = timeoutMillis,
+            stdin = null,
+            usePty = true,
+            terminalRows = terminalRows,
+            terminalColumns = terminalColumns,
+        )
         val sessionId = UUID.randomUUID().toString()
         val session = synchronized(shellSessionsLock) {
             cleanupShellSessionsLocked()
@@ -255,10 +266,17 @@ class WorkspaceManager(
         stdin: ByteArray? = null,
         closeStdin: Boolean = false,
         terminate: Boolean = false,
+        interrupt: Boolean = false,
+        terminalRows: Int? = null,
+        terminalColumns: Int? = null,
     ): WorkspaceShellSessionResult {
         val session = getShellSession(root, sessionId)
         if (stdin != null) session.process.writeStdin(stdin)
         if (closeStdin) session.process.closeStdin()
+        if (interrupt) session.process.interrupt()
+        if (terminalRows != null && terminalColumns != null) {
+            session.process.resizeTerminal(terminalRows, terminalColumns)
+        }
         if (terminate) {
             session.process.terminate()
             session.process.await(TERMINATION_WAIT_MS)
@@ -272,6 +290,9 @@ class WorkspaceManager(
         cwd: String,
         timeoutMillis: Long,
         stdin: ByteArray?,
+        usePty: Boolean = false,
+        terminalRows: Int = DEFAULT_TERMINAL_ROWS,
+        terminalColumns: Int = DEFAULT_TERMINAL_COLUMNS,
     ): WorkspaceShellContext {
         require(command.isNotBlank()) { "Command is required" }
         val workingDir = fileSystem.resolve(filesDir(root), cwd)
@@ -288,6 +309,9 @@ class WorkspaceManager(
             timeoutMillis = timeoutMillis,
             stdin = stdin,
             bindMounts = bindMounts,
+            usePty = usePty,
+            terminalRows = terminalRows.coerceAtLeast(1),
+            terminalColumns = terminalColumns.coerceAtLeast(1),
         )
     }
 
@@ -323,6 +347,7 @@ class WorkspaceManager(
                 exitCode = commandResult?.exitCode,
                 timedOut = commandResult?.timedOut == true,
                 truncated = session.process.isOutputTruncated,
+                pty = session.process.usesPty,
             )
         }
 
