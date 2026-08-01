@@ -283,7 +283,39 @@ class GenerationHandler(
                                 error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
                             }
                             Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
-                            val result = toolDef.execute(args)
+                            var result = toolDef.execute(args)
+                            val continuation = toolDef.continueExecution
+                            if (continuation != null) {
+                                while (true) {
+                                    val partialTool = tool.copy(output = result)
+                                    val partialMessage = messages.last().copy(
+                                        parts = messages.last().parts.map { part ->
+                                            if (part is UIMessagePart.Tool) {
+                                                when {
+                                                    part.toolCallId == tool.toolCallId -> partialTool
+                                                    else -> executedTools.find {
+                                                        it.toolCallId == part.toolCallId
+                                                    } ?: part
+                                                }
+                                            } else {
+                                                part
+                                            }
+                                        }
+                                    )
+                                    emit(
+                                        GenerationChunk.Messages(
+                                            (messages.dropLast(1) + partialMessage).transforms(
+                                                transformers = outputTransformers,
+                                                context = context,
+                                                model = model,
+                                                assistant = assistant,
+                                                settings = settings,
+                                            )
+                                        )
+                                    )
+                                    result = continuation(result) ?: break
+                                }
+                            }
                             val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
                             executedTools += tool.copy(
                                 output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)

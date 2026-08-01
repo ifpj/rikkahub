@@ -166,6 +166,33 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun backgroundCommandRequestsPtyWithConfiguredSize() {
+        val baseDir = Files.createTempDirectory("workspace-session-pty-test").toFile()
+        lateinit var capturedContext: WorkspaceShellContext
+        val runner = object : WorkspaceShellRunner {
+            override fun start(context: WorkspaceShellContext): WorkspaceShellProcess {
+                capturedContext = context
+                return WorkspaceShellProcess.completed(WorkspaceCommandResult(0, "", ""))
+            }
+        }
+        val manager = WorkspaceManager(baseDir, shellRunner = runner)
+        val root = "test-workspace"
+        manager.ensureWorkspace(root)
+
+        manager.startCommandSession(
+            root = root,
+            command = "printf quick",
+            yieldMillis = 0,
+            terminalRows = 42,
+            terminalColumns = 132,
+        )
+
+        assertTrue(capturedContext.usePty)
+        assertEquals(42, capturedContext.terminalRows)
+        assertEquals(132, capturedContext.terminalColumns)
+    }
+
+    @Test
     fun longCommandReturnsIncrementalSessionOutput() {
         val baseDir = Files.createTempDirectory("workspace-session-output-test").toFile()
         val manager = WorkspaceManager(baseDir)

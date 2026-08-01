@@ -33,6 +33,9 @@ data class WorkspaceShellContext(
     val timeoutMillis: Long,
     val stdin: ByteArray? = null,
     val bindMounts: List<WorkspaceBindMount> = emptyList(),
+    val usePty: Boolean = false,
+    val terminalRows: Int = DEFAULT_TERMINAL_ROWS,
+    val terminalColumns: Int = DEFAULT_TERMINAL_COLUMNS,
 )
 
 class HostShellRunner : WorkspaceShellRunner {
@@ -48,20 +51,23 @@ class HostShellRunner : WorkspaceShellRunner {
         if (File("/system/bin/sh").exists()) "/system/bin/sh" else "/bin/sh"
 }
 
+const val DEFAULT_TERMINAL_ROWS = 24
+const val DEFAULT_TERMINAL_COLUMNS = 120
+
 // Maximum characters retained per output stream. Collectors keep draining after this limit to avoid pipe deadlocks.
 const val MAX_OUTPUT_CHARS = 128 * 1024
 
 /** A running process whose lifetime is independent from an individual tool coroutine. */
 class WorkspaceShellProcess private constructor(
-    private val process: Process?,
+    private val backend: WorkspaceProcessBackend?,
     private val immediateResult: WorkspaceCommandResult?,
     timeoutMillis: Long,
     stdin: ByteArray?,
 ) {
-    private val stdoutCollector = process?.let { StreamCollector(it.inputStream) }
-    private val stderrCollector = process?.let { StreamCollector(it.errorStream) }
-    private val stdinWriter = if (process != null && stdin != null) {
-        StreamWriter(process.outputStream, stdin)
+    private val stdoutCollector = backend?.let { StreamCollector(it.stdoutStream) }
+    private val stderrCollector = backend?.stderrStream?.let(::StreamCollector)
+    private val stdinWriter = if (backend != null && stdin != null) {
+        StreamWriter(backend.stdinStream, stdin)
     } else {
         null
     }
@@ -70,12 +76,12 @@ class WorkspaceShellProcess private constructor(
     private var timedOut = false
 
     init {
-        if (process != null) {
+        if (backend != null) {
             Thread {
                 try {
-                    if (!process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)) {
+                    if (!backend.waitFor(timeoutMillis.coerceAtLeast(1))) {
                         timedOut = true
-                        process.destroyForcibly()
+                        backend.terminate()
                     }
                 } catch (_: InterruptedException) {
                     // The watchdog is daemon-only and is never intentionally interrupted.
@@ -89,28 +95,31 @@ class WorkspaceShellProcess private constructor(
     }
 
     val isCompleted: Boolean
-        get() = immediateResult != null || process?.isAlive == false
+        get() = immediateResult != null || backend?.isAlive == false
+
+    val usesPty: Boolean
+        get() = backend?.usesPty == true
 
     @Throws(InterruptedException::class)
     fun await(timeoutMillis: Long): Boolean {
         if (immediateResult != null) return true
-        return process?.waitFor(timeoutMillis.coerceAtLeast(0), TimeUnit.MILLISECONDS) ?: true
+        return backend?.waitFor(timeoutMillis.coerceAtLeast(0)) ?: true
     }
 
     @Throws(InterruptedException::class)
     fun awaitResult(): WorkspaceCommandResult {
         if (immediateResult != null) return immediateResult
-        process?.waitFor()
+        backend?.waitFor()
         return result() ?: error("Shell process did not complete")
     }
 
     fun result(): WorkspaceCommandResult? {
         immediateResult?.let { return it }
-        val currentProcess = process ?: return null
-        if (currentProcess.isAlive) return null
+        val currentBackend = backend ?: return null
+        if (currentBackend.isAlive) return null
         joinCollectors()
         return WorkspaceCommandResult(
-            exitCode = if (timedOut) -1 else currentProcess.exitValue(),
+            exitCode = if (timedOut) -1 else currentBackend.exitCode(),
             stdout = stdoutText(),
             stderr = stderrText(),
             timedOut = timedOut,
@@ -128,25 +137,34 @@ class WorkspaceShellProcess private constructor(
 
     @Throws(IOException::class)
     fun writeStdin(bytes: ByteArray) {
-        val currentProcess = process ?: error("Shell process has already completed")
-        require(currentProcess.isAlive) { "Shell process has already completed" }
-        synchronized(currentProcess.outputStream) {
-            currentProcess.outputStream.write(bytes)
-            currentProcess.outputStream.flush()
+        val currentBackend = backend ?: error("Shell process has already completed")
+        require(currentBackend.isAlive) { "Shell process has already completed" }
+        synchronized(currentBackend.stdinStream) {
+            currentBackend.stdinStream.write(bytes)
+            currentBackend.stdinStream.flush()
         }
     }
 
     fun closeStdin() {
-        runCatching { process?.outputStream?.close() }
+        runCatching { backend?.closeStdin() }
+    }
+
+    fun interrupt() {
+        val currentBackend = backend ?: error("Shell process has already completed")
+        require(currentBackend.isAlive) { "Shell process has already completed" }
+        currentBackend.interrupt()
+    }
+
+    fun resizeTerminal(rows: Int, columns: Int) {
+        backend?.resizeTerminal(rows, columns)
     }
 
     fun terminate() {
-        closeStdin()
-        process?.takeIf { it.isAlive }?.destroyForcibly()
+        backend?.terminate()
     }
 
     internal fun awaitAfterTermination() {
-        runCatching { process?.waitFor(1, TimeUnit.SECONDS) }
+        runCatching { backend?.waitFor(1_000) }
         joinCollectors()
     }
 
@@ -161,19 +179,84 @@ class WorkspaceShellProcess private constructor(
             process: Process,
             timeoutMillis: Long,
             stdin: ByteArray? = null,
+        ): WorkspaceShellProcess = start(JavaProcessBackend(process), timeoutMillis, stdin)
+
+        internal fun start(
+            backend: WorkspaceProcessBackend,
+            timeoutMillis: Long,
+            stdin: ByteArray? = null,
         ): WorkspaceShellProcess = WorkspaceShellProcess(
-            process = process,
+            backend = backend,
             immediateResult = null,
             timeoutMillis = timeoutMillis,
             stdin = stdin,
         )
 
         fun completed(result: WorkspaceCommandResult): WorkspaceShellProcess = WorkspaceShellProcess(
-            process = null,
+            backend = null,
             immediateResult = result,
             timeoutMillis = 0,
             stdin = null,
         )
+    }
+}
+
+internal interface WorkspaceProcessBackend {
+    val stdoutStream: InputStream
+    val stderrStream: InputStream?
+    val stdinStream: OutputStream
+    val isAlive: Boolean
+    val usesPty: Boolean
+
+    @Throws(InterruptedException::class)
+    fun waitFor(timeoutMillis: Long): Boolean
+
+    @Throws(InterruptedException::class)
+    fun waitFor()
+
+    fun exitCode(): Int
+
+    fun closeStdin()
+
+    fun interrupt()
+
+    fun resizeTerminal(rows: Int, columns: Int)
+
+    fun terminate()
+}
+
+private class JavaProcessBackend(
+    private val process: Process,
+) : WorkspaceProcessBackend {
+    override val stdoutStream: InputStream = process.inputStream
+    override val stderrStream: InputStream = process.errorStream
+    override val stdinStream: OutputStream = process.outputStream
+    override val isAlive: Boolean get() = process.isAlive
+    override val usesPty: Boolean = false
+
+    override fun waitFor(timeoutMillis: Long): Boolean =
+        process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
+
+    override fun waitFor() {
+        process.waitFor()
+    }
+
+    override fun exitCode(): Int = process.exitValue()
+
+    override fun closeStdin() {
+        process.outputStream.close()
+    }
+
+    override fun interrupt() {
+        process.outputStream.write(3)
+        process.outputStream.flush()
+    }
+
+    override fun resizeTerminal(rows: Int, columns: Int) = Unit
+
+    override fun terminate() {
+        runCatching { process.outputStream.close() }
+        if (process.isAlive) process.destroyForcibly()
     }
 }
 

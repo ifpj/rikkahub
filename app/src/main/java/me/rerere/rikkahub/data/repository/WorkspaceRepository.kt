@@ -11,6 +11,8 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.workspace.DEFAULT_TERMINAL_COLUMNS
+import me.rerere.workspace.DEFAULT_TERMINAL_ROWS
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstaller
 import me.rerere.workspace.WorkspaceCommandResult
@@ -295,11 +297,21 @@ class WorkspaceRepository(
         cwd: String = "",
         timeoutMillis: Long = WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS,
         yieldMillis: Long = WorkspaceManager.DEFAULT_SESSION_YIELD_MS,
+        terminalRows: Int = DEFAULT_TERMINAL_ROWS,
+        terminalColumns: Int = DEFAULT_TERMINAL_COLUMNS,
     ): WorkspaceShellSessionResult {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         return runInterruptible(Dispatchers.IO) {
             manager.ensureWorkspace(workspace.root)
-            manager.startCommandSession(workspace.root, command, cwd, timeoutMillis, yieldMillis)
+            manager.startCommandSession(
+                root = workspace.root,
+                command = command,
+                cwd = cwd,
+                timeoutMillis = timeoutMillis,
+                yieldMillis = yieldMillis,
+                terminalRows = terminalRows,
+                terminalColumns = terminalColumns,
+            )
         }
     }
 
@@ -320,10 +332,22 @@ class WorkspaceRepository(
         stdin: ByteArray? = null,
         closeStdin: Boolean = false,
         terminate: Boolean = false,
+        interrupt: Boolean = false,
+        terminalRows: Int? = null,
+        terminalColumns: Int? = null,
     ): WorkspaceShellSessionResult {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         return runInterruptible(Dispatchers.IO) {
-            manager.updateCommandSession(workspace.root, sessionId, stdin, closeStdin, terminate)
+            manager.updateCommandSession(
+                root = workspace.root,
+                sessionId = sessionId,
+                stdin = stdin,
+                closeStdin = closeStdin,
+                interrupt = interrupt,
+                terminate = terminate,
+                terminalRows = terminalRows,
+                terminalColumns = terminalColumns,
+            )
         }
     }
 

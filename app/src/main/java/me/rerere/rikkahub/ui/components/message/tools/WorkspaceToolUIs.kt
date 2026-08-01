@@ -19,26 +19,32 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import me.rerere.ai.ui.DiffMetadata
 import me.rerere.ai.ui.metadataAs
 import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.highlight.HighlightText
-import androidx.compose.ui.res.stringResource
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.FileAdd
 import me.rerere.hugeicons.stroke.FileEdit
 import me.rerere.hugeicons.stroke.FileView
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.tools.SHELL_TERMINAL_OUTPUT_METADATA_KEY
 import me.rerere.rikkahub.ui.components.richtext.DiffAddedColor
 import me.rerere.rikkahub.ui.components.richtext.DiffRemovedColor
 import me.rerere.rikkahub.ui.components.richtext.DiffView
@@ -286,7 +292,7 @@ private fun FileContentPreview(path: String?, code: String) {
 }
 
 /**
- * 工作空间执行 Shell: 摘要显示退出状态与输出首部, 详情为命令 + stdout/stderr
+ * 工作空间执行 Shell: 摘要显示退出状态与最新输出, 详情为命令 + stdout/stderr
  */
 object ShellToolUI : ToolUIRenderer {
     private const val TITLE_MAX_CHARS = 40
@@ -318,15 +324,17 @@ object ShellToolUI : ToolUIRenderer {
     @Composable
     override fun Summary(context: ToolUIContext) {
         val content = context.content ?: return
-        val combined = remember(content) {
+        val plainOutput = remember(content) {
             listOf(content.getStringContent("stdout"), content.getStringContent("stderr"))
                 .filterNot { it.isNullOrBlank() }
                 .joinToString("\n")
                 .trim()
         }
+        val terminalOutput = remember(context.tool.output) { context.shellTerminalOutput() }
+        val displayOutput = (terminalOutput ?: plainOutput).lastTerminalLines(SUMMARY_MAX_LINES)
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             ShellExitStatus(content, MaterialTheme.typography.labelSmall)
-            if (combined.isNotEmpty()) {
+            if (displayOutput.isNotEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -335,13 +343,9 @@ object ShellToolUI : ToolUIRenderer {
                         .padding(horizontal = 8.dp, vertical = 6.dp)
                         .shimmer(isLoading = context.loading),
                 ) {
-                    Text(
-                        text = combined.lineSequence().take(SUMMARY_MAX_LINES).joinToString("\n"),
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
+                    AnsiTerminalText(
+                        text = displayOutput,
                         maxLines = SUMMARY_MAX_LINES,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -361,6 +365,7 @@ object ShellToolUI : ToolUIRenderer {
             ?: content.getStringContent("sessionId")
         val stdout = content.getStringContent("stdout").orEmpty()
         val stderr = content.getStringContent("stderr").orEmpty()
+        val terminalOutput = remember(context.tool.output) { context.shellTerminalOutput() }
         Column(
             modifier = Modifier
                 .fillMaxHeight(0.8f)
@@ -389,7 +394,18 @@ object ShellToolUI : ToolUIRenderer {
                 language = if (command == null) "plaintext" else "bash",
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (stdout.isNotEmpty()) {
+            if (!terminalOutput.isNullOrEmpty()) {
+                Text(text = "terminal", style = MaterialTheme.typography.labelMedium)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .padding(8.dp),
+                ) {
+                    AnsiTerminalText(text = terminalOutput)
+                }
+            } else if (stdout.isNotEmpty()) {
                 Text(text = "stdout", style = MaterialTheme.typography.labelMedium)
                 HighlightCodeBlock(
                     code = stdout,
@@ -397,7 +413,7 @@ object ShellToolUI : ToolUIRenderer {
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            if (stderr.isNotEmpty()) {
+            if (stderr.isNotEmpty() && terminalOutput.isNullOrEmpty()) {
                 Text(
                     text = "stderr",
                     style = MaterialTheme.typography.labelMedium,
@@ -411,6 +427,157 @@ object ShellToolUI : ToolUIRenderer {
             }
         }
     }
+}
+
+private fun String.lastTerminalLines(maxLines: Int): String =
+    trimEnd('\r', '\n').lineSequence().toList().takeLast(maxLines).joinToString("\n")
+
+private fun ToolUIContext.shellTerminalOutput(): String? =
+    tool.output.filterIsInstance<UIMessagePart.Text>()
+        .firstOrNull()
+        ?.metadata
+        ?.get(SHELL_TERMINAL_OUTPUT_METADATA_KEY)
+        ?.jsonPrimitiveOrNull
+        ?.contentOrNull
+
+@Composable
+private fun AnsiTerminalText(
+    text: String,
+    maxLines: Int = Int.MAX_VALUE,
+) {
+    val defaultColor = MaterialTheme.colorScheme.onSurface
+    val annotated = remember(text, defaultColor) { text.parseAnsiTerminalText(defaultColor) }
+    Text(
+        text = annotated,
+        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+private data class AnsiStyleState(
+    var foreground: Color,
+    var background: Color = Color.Unspecified,
+    var bold: Boolean = false,
+)
+
+private fun String.parseAnsiTerminalText(defaultColor: Color): AnnotatedString {
+    val result = AnnotatedString.Builder()
+    val state = AnsiStyleState(foreground = defaultColor)
+    var index = 0
+    var segmentStart = 0
+
+    fun appendSegment(end: Int) {
+        if (end <= segmentStart) return
+        val segment = substring(segmentStart, end)
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .replace("\b", "")
+        result.pushStyle(
+            SpanStyle(
+                color = state.foreground,
+                background = state.background,
+                fontWeight = if (state.bold) FontWeight.Bold else FontWeight.Normal,
+            )
+        )
+        result.append(segment)
+        result.pop()
+    }
+
+    while (index < length) {
+        if (this[index] != '\u001B') {
+            index++
+            continue
+        }
+        appendSegment(index)
+        if (getOrNull(index + 1) == '[') {
+            val end = (index + 2 until length).firstOrNull { this[it] in '@'..'~' }
+            if (end == null) {
+                segmentStart = length
+                break
+            }
+            if (this[end] == 'm') {
+                applyAnsiSgr(substring(index + 2, end), state, defaultColor)
+            }
+            index = end + 1
+        } else if (getOrNull(index + 1) == ']') {
+            val bellEnd = indexOf('\u0007', startIndex = index + 2).takeIf { it >= 0 }
+            val escapeEnd = indexOf("\u001B\\", startIndex = index + 2).takeIf { it >= 0 }?.plus(1)
+            index = listOfNotNull(bellEnd, escapeEnd).minOrNull()?.plus(1) ?: length
+        } else {
+            index = (index + 2).coerceAtMost(length)
+        }
+        segmentStart = index
+    }
+    appendSegment(length)
+    return result.toAnnotatedString()
+}
+
+private fun applyAnsiSgr(parameters: String, state: AnsiStyleState, defaultColor: Color) {
+    val codes = if (parameters.isBlank()) listOf(0) else parameters.split(';').map { it.toIntOrNull() ?: 0 }
+    var index = 0
+    while (index < codes.size) {
+        when (val code = codes[index]) {
+            0 -> {
+                state.foreground = defaultColor
+                state.background = Color.Unspecified
+                state.bold = false
+            }
+
+            1 -> state.bold = true
+            22 -> state.bold = false
+            39 -> state.foreground = defaultColor
+            49 -> state.background = Color.Unspecified
+            in 30..37 -> state.foreground = ansiColor(code - 30)
+            in 90..97 -> state.foreground = ansiColor(code - 90 + 8)
+            in 40..47 -> state.background = ansiColor(code - 40)
+            in 100..107 -> state.background = ansiColor(code - 100 + 8)
+            38, 48 -> {
+                val color = when (codes.getOrNull(index + 1)) {
+                    5 -> codes.getOrNull(index + 2)?.let(::ansiColor).also { index += 2 }
+                    2 -> {
+                        val red = codes.getOrNull(index + 2)
+                        val green = codes.getOrNull(index + 3)
+                        val blue = codes.getOrNull(index + 4)
+                        index += 4
+                        if (red != null && green != null && blue != null) {
+                            Color(red.coerceIn(0, 255), green.coerceIn(0, 255), blue.coerceIn(0, 255))
+                        } else {
+                            null
+                        }
+                    }
+
+                    else -> null
+                }
+                if (color != null) {
+                    if (code == 38) state.foreground = color else state.background = color
+                }
+            }
+        }
+        index++
+    }
+}
+
+private fun ansiColor(index: Int): Color {
+    val basic = listOf(
+        Color(0xFF1D1F21), Color(0xFFCC6666), Color(0xFFB5BD68), Color(0xFFF0C674),
+        Color(0xFF81A2BE), Color(0xFFB294BB), Color(0xFF8ABEB7), Color(0xFFC5C8C6),
+        Color(0xFF666666), Color(0xFFD54E53), Color(0xFFB9CA4A), Color(0xFFE7C547),
+        Color(0xFF7AA6DA), Color(0xFFC397D8), Color(0xFF70C0B1), Color(0xFFEAEAEA),
+    )
+    if (index in basic.indices) return basic[index]
+    if (index in 16..231) {
+        val value = index - 16
+        val red = value / 36
+        val green = value / 6 % 6
+        val blue = value % 6
+        fun component(component: Int) = if (component == 0) 0 else 55 + component * 40
+        return Color(component(red), component(green), component(blue))
+    }
+    val gray = (8 + (index.coerceIn(232, 255) - 232) * 10).coerceIn(0, 255)
+    return Color(gray, gray, gray)
 }
 
 /** Shell 退出状态文本: exit code 为 0 显示绿色, 超时或非零显示错误色 */
