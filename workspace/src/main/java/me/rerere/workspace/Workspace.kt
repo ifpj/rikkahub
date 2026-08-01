@@ -64,3 +64,23 @@ data class WorkspaceCommandResult(
     val timedOut: Boolean = false,
     val truncated: Boolean = false,
 )
+
+enum class WorkspaceShellSessionStatus {
+    RUNNING,
+    COMPLETED,
+}
+
+/**
+ * A snapshot of a background shell session.
+ *
+ * [stdout] and [stderr] only contain output produced since the previous snapshot for this session.
+ */
+data class WorkspaceShellSessionResult(
+    val status: WorkspaceShellSessionStatus,
+    val sessionId: String?,
+    val stdout: String,
+    val stderr: String,
+    val exitCode: Int? = null,
+    val timedOut: Boolean = false,
+    val truncated: Boolean = false,
+)

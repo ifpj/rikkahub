@@ -298,7 +298,16 @@ object ShellToolUI : ToolUIRenderer {
 
     @Composable
     override fun title(context: ToolUIContext): String {
-        val command = context.arguments.getStringContent("command") ?: return stringResource(R.string.tool_ui_shell_default)
+        val command = context.arguments.getStringContent("command")
+        if (command == null) {
+            val action = when (context.tool.toolName) {
+                "workspace_shell_wait" -> "wait"
+                "workspace_shell_write" -> "input"
+                else -> return stringResource(R.string.tool_ui_shell_default)
+            }
+            val sessionId = context.arguments.getStringContent("session_id").orEmpty().take(8)
+            return "${stringResource(R.string.tool_ui_shell_default)}: $action $sessionId"
+        }
         val preview = command.replace("\n", " ").trim()
         val truncated = if (preview.length > TITLE_MAX_CHARS) preview.take(TITLE_MAX_CHARS) + "…" else preview
         return stringResource(R.string.tool_ui_shell, truncated)
@@ -346,8 +355,10 @@ object ShellToolUI : ToolUIRenderer {
             DefaultToolPreview(context = context)
             return
         }
-        val command = context.arguments.getStringContent("command").orEmpty()
+        val command = context.arguments.getStringContent("command")
         val cwd = context.arguments.getStringContent("cwd")
+        val sessionId = context.arguments.getStringContent("session_id")
+            ?: content.getStringContent("sessionId")
         val stdout = content.getStringContent("stdout").orEmpty()
         val stderr = content.getStringContent("stderr").orEmpty()
         Column(
@@ -370,8 +381,12 @@ object ShellToolUI : ToolUIRenderer {
                 ShellExitStatus(content, MaterialTheme.typography.labelMedium)
             }
             HighlightCodeBlock(
-                code = if (cwd.isNullOrBlank()) command else "# cwd: $cwd\n$command",
-                language = "bash",
+                code = when {
+                    command == null -> "session: ${sessionId.orEmpty()}"
+                    cwd.isNullOrBlank() -> command
+                    else -> "# cwd: $cwd\n$command"
+                },
+                language = if (command == null) "plaintext" else "bash",
                 modifier = Modifier.fillMaxWidth(),
             )
             if (stdout.isNotEmpty()) {
@@ -401,16 +416,22 @@ object ShellToolUI : ToolUIRenderer {
 /** Shell 退出状态文本: exit code 为 0 显示绿色, 超时或非零显示错误色 */
 @Composable
 private fun ShellExitStatus(content: JsonElement, style: androidx.compose.ui.text.TextStyle) {
+    val running = content.getStringContent("status") == "running"
     val exitCode = content.int("exitCode")
     val timedOut = content.boolean("timedOut") ?: false
     val ok = !timedOut && exitCode == 0
     Text(
         text = when {
+            running -> stringResource(R.string.tool_ui_shell_running)
             timedOut -> stringResource(R.string.tool_ui_shell_timeout)
             else -> stringResource(R.string.tool_ui_shell_exit, exitCode?.toString() ?: "?")
         },
         style = style,
-        color = if (ok) DiffAddedColor else MaterialTheme.colorScheme.error,
+        color = when {
+            running -> MaterialTheme.colorScheme.primary
+            ok -> DiffAddedColor
+            else -> MaterialTheme.colorScheme.error
+        },
     )
 }
 

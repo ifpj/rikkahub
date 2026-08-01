@@ -151,6 +151,104 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun quickCommandCompletesWithoutRetainingSession() {
+        val baseDir = Files.createTempDirectory("workspace-session-quick-test").toFile()
+        val manager = WorkspaceManager(baseDir)
+        val root = "test-workspace"
+        manager.ensureWorkspace(root)
+
+        val result = manager.startCommandSession(root, "printf quick", yieldMillis = 2_000)
+
+        assertEquals(WorkspaceShellSessionStatus.COMPLETED, result.status)
+        assertNull(result.sessionId)
+        assertEquals(0, result.exitCode)
+        assertEquals("quick", result.stdout)
+    }
+
+    @Test
+    fun longCommandReturnsIncrementalSessionOutput() {
+        val baseDir = Files.createTempDirectory("workspace-session-output-test").toFile()
+        val manager = WorkspaceManager(baseDir)
+        val root = "test-workspace"
+        manager.ensureWorkspace(root)
+
+        val started = manager.startCommandSession(
+            root = root,
+            command = "printf first; sleep 2; printf second",
+            yieldMillis = 200,
+        )
+        assertEquals(WorkspaceShellSessionStatus.RUNNING, started.status)
+        val sessionId = requireNotNull(started.sessionId)
+        var firstOutput = started.stdout
+        repeat(5) {
+            if (firstOutput.isEmpty()) {
+                firstOutput += manager.waitCommandSession(root, sessionId, yieldMillis = 100).stdout
+            }
+        }
+        assertEquals("first", firstOutput)
+
+        val completed = manager.waitCommandSession(root, sessionId, yieldMillis = 3_000)
+        assertEquals(WorkspaceShellSessionStatus.COMPLETED, completed.status)
+        assertEquals("second", completed.stdout)
+        assertEquals(0, completed.exitCode)
+
+        val emptyDelta = manager.waitCommandSession(root, sessionId, yieldMillis = 0)
+        assertEquals(WorkspaceShellSessionStatus.COMPLETED, emptyDelta.status)
+        assertEquals("", emptyDelta.stdout)
+    }
+
+    @Test
+    fun backgroundSessionAcceptsStdin() {
+        val baseDir = Files.createTempDirectory("workspace-session-stdin-test").toFile()
+        val manager = WorkspaceManager(baseDir)
+        val root = "test-workspace"
+        manager.ensureWorkspace(root)
+
+        val started = manager.startCommandSession(
+            root = root,
+            command = "read line; printf 'got:%s' \"\$line\"",
+            yieldMillis = 100,
+        )
+        assertEquals(WorkspaceShellSessionStatus.RUNNING, started.status)
+
+        val written = manager.updateCommandSession(
+            root = root,
+            sessionId = requireNotNull(started.sessionId),
+            stdin = "hello\n".toByteArray(),
+            closeStdin = true,
+        )
+        val completed = if (written.status == WorkspaceShellSessionStatus.COMPLETED) {
+            written
+        } else {
+            manager.waitCommandSession(root, requireNotNull(started.sessionId), yieldMillis = 2_000)
+        }
+        assertEquals(WorkspaceShellSessionStatus.COMPLETED, completed.status)
+        assertEquals("got:hello", written.stdout + completed.stdout)
+    }
+
+    @Test
+    fun shellSessionCannotBeAccessedFromAnotherWorkspace() {
+        val baseDir = Files.createTempDirectory("workspace-session-isolation-test").toFile()
+        val manager = WorkspaceManager(baseDir)
+        manager.ensureWorkspace("workspace-a")
+        manager.ensureWorkspace("workspace-b")
+
+        val started = manager.startCommandSession("workspace-a", "sleep 10", yieldMillis = 20)
+        val sessionId = requireNotNull(started.sessionId)
+
+        assertThrows(IllegalStateException::class.java) {
+            manager.waitCommandSession("workspace-b", sessionId, yieldMillis = 0)
+        }
+        val terminationResult = manager.updateCommandSession("workspace-a", sessionId, terminate = true)
+        val terminated = if (terminationResult.status == WorkspaceShellSessionStatus.COMPLETED) {
+            terminationResult
+        } else {
+            manager.waitCommandSession("workspace-a", sessionId, yieldMillis = 2_000)
+        }
+        assertEquals(WorkspaceShellSessionStatus.COMPLETED, terminated.status)
+    }
+
+    @Test
     fun rootfsPatcherAppliesAndroidProotDefaults() {
         val linuxDir = Files.createTempDirectory("rootfs-patch-test").toFile()
         File(linuxDir, "etc").mkdirs()

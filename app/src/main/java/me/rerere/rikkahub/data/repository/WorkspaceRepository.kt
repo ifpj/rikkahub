@@ -16,6 +16,7 @@ import me.rerere.workspace.RootfsInstaller
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
+import me.rerere.workspace.WorkspaceShellSessionResult
 import me.rerere.workspace.WorkspaceShellStatus
 import me.rerere.workspace.WorkspaceStorageArea
 import java.io.ByteArrayOutputStream
@@ -285,6 +286,44 @@ class WorkspaceRepository(
         return runInterruptible(Dispatchers.IO) {
             manager.ensureWorkspace(workspace.root)
             manager.executeCommand(workspace.root, command, cwd, timeoutMillis, stdin)
+        }
+    }
+
+    suspend fun startCommandSession(
+        id: String,
+        command: String,
+        cwd: String = "",
+        timeoutMillis: Long = WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS,
+        yieldMillis: Long = WorkspaceManager.DEFAULT_SESSION_YIELD_MS,
+    ): WorkspaceShellSessionResult {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        return runInterruptible(Dispatchers.IO) {
+            manager.ensureWorkspace(workspace.root)
+            manager.startCommandSession(workspace.root, command, cwd, timeoutMillis, yieldMillis)
+        }
+    }
+
+    suspend fun waitCommandSession(
+        id: String,
+        sessionId: String,
+        yieldMillis: Long = WorkspaceManager.DEFAULT_SESSION_WAIT_MS,
+    ): WorkspaceShellSessionResult {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        return runInterruptible(Dispatchers.IO) {
+            manager.waitCommandSession(workspace.root, sessionId, yieldMillis)
+        }
+    }
+
+    suspend fun updateCommandSession(
+        id: String,
+        sessionId: String,
+        stdin: ByteArray? = null,
+        closeStdin: Boolean = false,
+        terminate: Boolean = false,
+    ): WorkspaceShellSessionResult {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        return runInterruptible(Dispatchers.IO) {
+            manager.updateCommandSession(workspace.root, sessionId, stdin, closeStdin, terminate)
         }
     }
 

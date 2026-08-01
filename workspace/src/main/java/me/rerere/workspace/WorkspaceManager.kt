@@ -5,6 +5,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
+import java.util.UUID
 
 class WorkspaceManager(
     private val baseDir: File,
@@ -13,6 +14,8 @@ class WorkspaceManager(
     private val bindMounts: List<WorkspaceBindMount> = emptyList(),
 ) {
     private val fileSystem = WorkspaceFileSystem(config)
+    private val shellSessions = mutableMapOf<String, ManagedShellSession>()
+    private val shellSessionsLock = Any()
 
     // 按 target 长度降序, 保证 /a/b 优先于 /a 匹配
     private val sortedBindMounts = bindMounts.sortedByDescending { it.target.trimEnd('/').length }
@@ -42,7 +45,10 @@ class WorkspaceManager(
 
     fun hasRootfs(root: String): Boolean = File(linuxDir(root), "bin/sh").isFile
 
-    fun deleteWorkspace(root: String): Boolean = workspaceDir(root).deleteRecursively()
+    fun deleteWorkspace(root: String): Boolean {
+        terminateShellSessions(root)
+        return workspaceDir(root).deleteRecursively()
+    }
 
     fun listFiles(
         root: String,
@@ -184,25 +190,148 @@ class WorkspaceManager(
         timeoutMillis: Long = DEFAULT_COMMAND_TIMEOUT_MS,
         stdin: ByteArray? = null,
     ): WorkspaceCommandResult {
+        return shellRunner.execute(createShellContext(root, command, cwd, timeoutMillis, stdin))
+    }
+
+    /** Starts a command and retains it as a session when it is still running after [yieldMillis]. */
+    fun startCommandSession(
+        root: String,
+        command: String,
+        cwd: String = "",
+        timeoutMillis: Long = DEFAULT_COMMAND_TIMEOUT_MS,
+        yieldMillis: Long = DEFAULT_SESSION_YIELD_MS,
+    ): WorkspaceShellSessionResult {
+        val context = createShellContext(root, command, cwd, timeoutMillis, stdin = null)
+        val sessionId = UUID.randomUUID().toString()
+        val session = synchronized(shellSessionsLock) {
+            cleanupShellSessionsLocked()
+            val activeCount = shellSessions.values.count { it.root == root && !it.process.isCompleted }
+            require(activeCount < MAX_ACTIVE_SHELL_SESSIONS_PER_WORKSPACE) {
+                "Too many active shell sessions for this workspace (max $MAX_ACTIVE_SHELL_SESSIONS_PER_WORKSPACE)"
+            }
+            ManagedShellSession(
+                id = sessionId,
+                root = root,
+                process = shellRunner.start(context),
+                lastAccessAt = System.currentTimeMillis(),
+            ).also { shellSessions[sessionId] = it }
+        }
+
+        session.process.await(yieldMillis.coerceIn(0, MAX_SESSION_YIELD_MS))
+        val result = takeShellSessionSnapshot(session)
+        if (result.status == WorkspaceShellSessionStatus.COMPLETED) {
+            synchronized(shellSessionsLock) { shellSessions.remove(sessionId) }
+            return result.copy(sessionId = null)
+        }
+        return result
+    }
+
+    /** Waits briefly and returns only output produced since the previous snapshot. */
+    fun waitCommandSession(
+        root: String,
+        sessionId: String,
+        yieldMillis: Long = DEFAULT_SESSION_WAIT_MS,
+    ): WorkspaceShellSessionResult {
+        val session = getShellSession(root, sessionId)
+        session.process.await(yieldMillis.coerceIn(0, MAX_SESSION_YIELD_MS))
+        return takeShellSessionSnapshot(session)
+    }
+
+    /** Writes to, closes stdin for, or terminates an existing session. */
+    fun updateCommandSession(
+        root: String,
+        sessionId: String,
+        stdin: ByteArray? = null,
+        closeStdin: Boolean = false,
+        terminate: Boolean = false,
+    ): WorkspaceShellSessionResult {
+        val session = getShellSession(root, sessionId)
+        if (stdin != null) session.process.writeStdin(stdin)
+        if (closeStdin) session.process.closeStdin()
+        if (terminate) {
+            session.process.terminate()
+            session.process.await(TERMINATION_WAIT_MS)
+        }
+        return takeShellSessionSnapshot(session)
+    }
+
+    private fun createShellContext(
+        root: String,
+        command: String,
+        cwd: String,
+        timeoutMillis: Long,
+        stdin: ByteArray?,
+    ): WorkspaceShellContext {
         require(command.isNotBlank()) { "Command is required" }
         val workingDir = fileSystem.resolve(filesDir(root), cwd)
         require(workingDir.exists()) { "Working directory does not exist: $cwd" }
         require(workingDir.isDirectory) { "Working path is not a directory: $cwd" }
-
-        return shellRunner.execute(
-            WorkspaceShellContext(
-                root = root,
-                command = command,
-                cwd = cwd,
-                filesDir = filesDir(root),
-                linuxDir = linuxDir(root),
-                tempDir = tempDir(root),
-                workingDir = workingDir,
-                timeoutMillis = timeoutMillis,
-                stdin = stdin,
-                bindMounts = bindMounts,
-            )
+        return WorkspaceShellContext(
+            root = root,
+            command = command,
+            cwd = cwd,
+            filesDir = filesDir(root),
+            linuxDir = linuxDir(root),
+            tempDir = tempDir(root),
+            workingDir = workingDir,
+            timeoutMillis = timeoutMillis,
+            stdin = stdin,
+            bindMounts = bindMounts,
         )
+    }
+
+    private fun getShellSession(root: String, sessionId: String): ManagedShellSession =
+        synchronized(shellSessionsLock) {
+            cleanupShellSessionsLocked()
+            shellSessions[sessionId]
+                ?.takeIf { it.root == root }
+                ?.also { it.lastAccessAt = System.currentTimeMillis() }
+                ?: error("Shell session not found: $sessionId")
+        }
+
+    private fun takeShellSessionSnapshot(session: ManagedShellSession): WorkspaceShellSessionResult =
+        synchronized(session) {
+            // result() joins both collectors after process exit, so the final output is included in this snapshot.
+            val commandResult = session.process.result()
+            val stdout = session.process.stdoutText()
+            val stderr = session.process.stderrText()
+            val stdoutDelta = stdout.substring(session.stdoutCursor.coerceAtMost(stdout.length))
+            val stderrDelta = stderr.substring(session.stderrCursor.coerceAtMost(stderr.length))
+            session.stdoutCursor = stdout.length
+            session.stderrCursor = stderr.length
+            session.lastAccessAt = System.currentTimeMillis()
+            WorkspaceShellSessionResult(
+                status = if (commandResult == null) {
+                    WorkspaceShellSessionStatus.RUNNING
+                } else {
+                    WorkspaceShellSessionStatus.COMPLETED
+                },
+                sessionId = session.id,
+                stdout = stdoutDelta,
+                stderr = stderrDelta,
+                exitCode = commandResult?.exitCode,
+                timedOut = commandResult?.timedOut == true,
+                truncated = session.process.isOutputTruncated,
+            )
+        }
+
+    private fun terminateShellSessions(root: String) {
+        val sessions = synchronized(shellSessionsLock) {
+            shellSessions.values.filter { it.root == root }.also { matching ->
+                matching.forEach { shellSessions.remove(it.id) }
+            }
+        }
+        sessions.forEach {
+            it.process.terminate()
+            it.process.awaitAfterTermination()
+        }
+    }
+
+    private fun cleanupShellSessionsLocked() {
+        val cutoff = System.currentTimeMillis() - COMPLETED_SESSION_RETENTION_MS
+        shellSessions.entries.removeAll { (_, session) ->
+            session.process.isCompleted && session.lastAccessAt < cutoff
+        }
     }
 
     private fun requireValidRoot(root: String) {
@@ -234,6 +363,13 @@ class WorkspaceManager(
         private const val LINUX_DIR = "linux"
         private const val TEMP_DIR = "tmp"
         const val DEFAULT_COMMAND_TIMEOUT_MS = 30_000L
+        const val DEFAULT_SESSION_YIELD_MS = 10_000L
+        const val DEFAULT_SESSION_WAIT_MS = 10_000L
+
+        private const val MAX_SESSION_YIELD_MS = 30_000L
+        private const val TERMINATION_WAIT_MS = 1_000L
+        private const val COMPLETED_SESSION_RETENTION_MS = 5 * 60_000L
+        private const val MAX_ACTIVE_SHELL_SESSIONS_PER_WORKSPACE = 4
 
         /** Rootfs 内工作区文件区的挂载点 */
         const val ROOTFS_WORKSPACE_DIR = "/workspace"
@@ -246,6 +382,15 @@ class WorkspaceManager(
 }
 
 /** Rootfs 内绝对路径在宿主机上的落点 */
+private data class ManagedShellSession(
+    val id: String,
+    val root: String,
+    val process: WorkspaceShellProcess,
+    var stdoutCursor: Int = 0,
+    var stderrCursor: Int = 0,
+    var lastAccessAt: Long,
+)
+
 data class RootfsLocation(
     val rootDir: File,
     val relativePath: String,

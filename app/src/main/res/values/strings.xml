@@ -1274,6 +1274,7 @@
   <string name="tool_ui_move_file">Move file</string>
   <string name="tool_ui_shell">Shell: %s</string>
   <string name="tool_ui_shell_default">Shell</string>
+  <string name="tool_ui_shell_running">running in background</string>
   <string name="tool_ui_shell_timeout">timeout</string>
   <string name="tool_ui_shell_exit">exit %s</string>
   <string name="tool_ui_speaking">Speaking: %s</string>

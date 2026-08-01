@@ -17,10 +17,13 @@ import me.rerere.rikkahub.utils.generateUnifiedDiff
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
+import me.rerere.workspace.WorkspaceShellSessionResult
+import me.rerere.workspace.WorkspaceShellSessionStatus
 import org.koin.java.KoinJavaComponent.getKoin
 import java.io.ByteArrayOutputStream
 
 private const val SHELL_TIMEOUT_MAX_SECONDS = 600L
+private const val SHELL_YIELD_MAX_MILLIS = 30_000L
 private const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
 
 val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
@@ -49,6 +52,8 @@ suspend fun createWorkspaceTools(
         createWriteFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createEditFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd),
+        createShellWaitTool(workspaceId, workspaceRepository),
+        createShellWriteTool(workspaceId, workspaceRepository),
     )
 }
 
@@ -214,7 +219,8 @@ private fun createShellTool(
         if (!defaultCwd.isNullOrBlank()) {
             append("Defaults to '$defaultCwd'. ")
         }
-        append("Requires Rootfs to be installed and ready.")
+        append("Requires Rootfs to be installed and ready. ")
+        append("Long-running commands return status=running and a sessionId; use workspace_shell_wait to continue.")
     },
     parameters = {
         InputSchema.Obj(
@@ -241,6 +247,14 @@ private fun createShellTool(
                         "Command timeout in seconds. Defaults to 30, max $SHELL_TIMEOUT_MAX_SECONDS."
                     )
                 })
+                put("yield_time_ms", buildJsonObject {
+                    put("type", "integer")
+                    put(
+                        "description",
+                        "How long to wait before returning a background session. Defaults to " +
+                            "${WorkspaceManager.DEFAULT_SESSION_YIELD_MS}, max $SHELL_YIELD_MAX_MILLIS."
+                    )
+                })
             },
             required = listOf("command"),
         )
@@ -255,23 +269,130 @@ private fun createShellTool(
             ?.coerceIn(1L, SHELL_TIMEOUT_MAX_SECONDS)
             ?.times(1_000L)
             ?: WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS
-        val result = workspaceRepository.executeCommand(workspaceId, command, cwd, timeoutMillis)
-        listOf(
-            UIMessagePart.Text(
-                buildJsonObject {
-                    put("exitCode", result.exitCode)
-                    put("stdout", result.stdout)
-                    put("stderr", result.stderr)
-                    put("timedOut", result.timedOut)
-                    if (result.truncated) put("truncated", true)
-                }.toString()
-            )
+        val yieldMillis = params.string("yield-time_ms")?.toLongOrNull()
+            ?.coerceIn(0L, SHELL_YIELD_MAX_MILLIS)
+            ?: WorkspaceManager.DEFAULT_SESSION_YIELD_MS
+        val result = workspaceRepository.startCommandSession(
+            id = workspaceId,
+            command = command,
+            cwd = cwd,
+            timeoutMillis = timeoutMillis,
+            yieldMillis = yieldMillis,
         )
+        listOf(UIMessagePart.Text(result.toJson().toString()))
+    },
+)
+
+private fun createShellWaitTool(
+    workspaceId: String,
+    workspaceRepository: WorkspaceRepository,
+) = Tool(
+    name = "workspace_shell_wait",
+    description = """
+        Wait for a running workspace_shell session and return only new stdout/stderr since the previous shell call.
+        Repeat until status is completed. This continuation does not require a new approval.
+    """.trimIndent().replace("\n", " "),
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("session_id", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Session ID returned by workspace_shell")
+                })
+                put("yield_time_ms", buildJsonObject {
+                    put("type", "integer")
+                    put(
+                        "description",
+                        "How long to wait for new output. Defaults to " +
+                            "${WorkspaceManager.DEFAULT_SESSION_WAIT_MS}, max $SHELL_YIELD_MAX_MILLIS."
+                    )
+                })
+            },
+            required = listOf("session_id"),
+        )
+    },
+    needsApproval = { false },
+    execute = {
+        val params = it.jsonObject
+        val sessionId = params.string("session_id") ?: error("session_id is required")
+        val yieldMillis = params.string("yield-time_ms")?.toLongOrNull()
+            ?.coerceIn(0L, SHELL_YIELD_MAX_MILLIS)
+            ?: WorkspaceManager.DEFAULT_SESSION_WAIT_MS
+        val result = workspaceRepository.waitCommandSession(workspaceId, sessionId, yieldMillis)
+        listOf(UIMessagePart.Text(result.toJson().toString()))
+    },
+)
+
+private fun createShellWriteTool(
+    workspaceId: String,
+    workspaceRepository: WorkspaceRepository,
+) = Tool(
+    name = "workspace_shell_write",
+    description = """
+        Interact with a running workspace_shell session: write text to stdin, close stdin, or terminate the process.
+        This continuation does not require a new approval. Use workspace_shell_wait afterward if it is still running.
+    """.trimIndent().replace("\n", " "),
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("session_id", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Session ID returned by workspace_shell")
+                })
+                put("stdin", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Text to write to the process stdin")
+                })
+                put("close_stdin", buildJsonObject {
+                    put("type", "boolean")
+                    put("description", "Close stdin after writing. Defaults to false.")
+                })
+                put("terminate", buildJsonObject {
+                    put("type", "boolean")
+                    put("description", "Forcefully terminate the process. Defaults to false.")
+                })
+            },
+            required = listOf("session_id"),
+        )
+    },
+    needsApproval = { false },
+    execute = {
+        val params = it.jsonObject
+        val sessionId = params.string("session_id") ?: error("session_id is required")
+        val stdin = params.string("stdin")
+        val closeStdin = params.boolean("close_stdin") ?: false
+        val terminate = params.boolean("terminate") ?: false
+        require(stdin != null || closeStdin || terminate) {
+            "At least one of stdin, close_stdin, or terminate is required"
+        }
+        val result = workspaceRepository.updateCommandSession(
+            id = workspaceId,
+            sessionId = sessionId,
+            stdin = stdin?.toByteArray(Charsets.UTF_8),
+            closeStdin = closeStdin,
+            terminate = terminate,
+        )
+        listOf(UIMessagePart.Text(result.toJson().toString()))
     },
 )
 
 private fun kotlinx.serialization.json.JsonObject.string(name: String): String? =
     this[name]?.jsonPrimitive?.contentOrNull
+
+private fun kotlinx.serialization.json.JsonObject.boolean(name: String): Boolean? =
+    this[name]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+
+private fun WorkspaceShellSessionResult.toJson() = buildJsonObject {
+    put("status", status.name.lowercase())
+    sessionId?.let { put("sessionId", it) }
+    put("stdout", stdout)
+    put("stderr", stderr)
+    if (status == WorkspaceShellSessionStatus.COMPLETED) {
+        exitCode?.let { put("exitCode", it) }
+        put("timedOut", timedOut)
+    }
+    if (truncated) put("truncated", true)
+}
 
 private suspend fun WorkspaceRepository.readTextInRootfs(
     workspaceId: String,
