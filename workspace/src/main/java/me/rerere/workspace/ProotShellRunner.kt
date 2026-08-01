@@ -15,29 +15,35 @@ class ProotShellRunner(
     private val nativeLibraryDir: File,
     private val patcher: RootfsPatcher = RootfsPatcher(),
 ) : WorkspaceShellRunner {
-    override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
+    override fun start(context: WorkspaceShellContext): WorkspaceShellProcess {
         if (!context.linuxDir.hasUsableRootfs()) {
-            return WorkspaceCommandResult(
-                exitCode = 127,
-                stdout = "",
-                stderr = "Rootfs is not installed",
+            return WorkspaceShellProcess.completed(
+                WorkspaceCommandResult(
+                    exitCode = 127,
+                    stdout = "",
+                    stderr = "Rootfs is not installed",
+                )
             )
         }
 
         val proot = File(nativeLibraryDir, PROOT_EXEC)
         val loader = File(nativeLibraryDir, PROOT_LOADER)
         if (!proot.isFile) {
-            return WorkspaceCommandResult(
-                exitCode = 127,
-                stdout = "",
-                stderr = "proot executable not found: ${proot.absolutePath}",
+            return WorkspaceShellProcess.completed(
+                WorkspaceCommandResult(
+                    exitCode = 127,
+                    stdout = "",
+                    stderr = "proot executable not found: ${proot.absolutePath}",
+                )
             )
         }
         if (!loader.isFile) {
-            return WorkspaceCommandResult(
-                exitCode = 127,
-                stdout = "",
-                stderr = "proot loader not found: ${loader.absolutePath}",
+            return WorkspaceShellProcess.completed(
+                WorkspaceCommandResult(
+                    exitCode = 127,
+                    stdout = "",
+                    stderr = "proot loader not found: ${loader.absolutePath}",
+                )
             )
         }
 
@@ -53,7 +59,7 @@ class ProotShellRunner(
             }
             .start()
 
-        return process.readResult(context.timeoutMillis, context.stdin)
+        return WorkspaceShellProcess.start(process, context.timeoutMillis, context.stdin)
     }
 
     private fun buildCommand(
