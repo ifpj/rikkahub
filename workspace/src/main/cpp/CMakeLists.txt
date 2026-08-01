@@ -29,10 +29,17 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         workspace.cpp)
 
+# Keep workspace PTY bindings in a uniquely named library so APK packaging cannot select an upstream libtermux.so
+# that lacks the WorkspacePtyNative JNI symbols.
+add_library(workspace_pty SHARED
+        termux_pty.cpp)
 # Specifies libraries CMake should link to your target library. You
 # can link libraries from various origins, such as libraries defined in this
 # build script, prebuilt third-party libraries, or Android system libraries.
 target_link_libraries(${CMAKE_PROJECT_NAME}
         # List libraries link to the target library
         android
+        log)
+
+target_link_libraries(workspace_pty
         log)

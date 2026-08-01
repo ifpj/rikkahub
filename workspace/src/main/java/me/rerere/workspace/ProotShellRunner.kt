@@ -74,17 +74,26 @@ class ProotShellRunner(
     private fun processBuilder(context: WorkspaceShellContext, command: List<String>): ProcessBuilder {
         context.tempDir.mkdirs()
         patcher.patch(context.linuxDir)
-        return ProcessBuilder(command)
+        val command = buildCommand(context, proot)
+        if (context.usePty) {
+            val backend = WorkspacePtyProcess.start(
+                command = proot.absolutePath,
+                cwd = context.filesDir.absolutePath,
+                args = command.drop(1).toTypedArray(),
+                environment = processEnvironment(context, loader),
+                rows = context.terminalRows,
+                columns = context.terminalColumns,
+            )
+            return WorkspaceShellProcess.start(backend, context.timeoutMillis, context.stdin)
+        }
+
+        val process = ProcessBuilder(command)
             .directory(context.filesDir)
             .apply {
-                if (context.shellCompatibilityMode) {
-                    environment()["PROOT_NO_SECCOMP"] = "1"
-                } else {
-                    environment().remove("PROOT_NO_SECCOMP")
+                processEnvironment(context, loader).forEach { entry ->
+                    val (name, value) = entry.split('=', limit = 2)
+                    environment()[name] = value
                 }
-                environment()["PROOT_LOADER"] = File(nativeLibraryDir, PROOT_LOADER).absolutePath
-                environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
-                environment()["TMPDIR"] = context.tempDir.absolutePath
             }
             .start()
 
@@ -117,6 +126,15 @@ class ProotShellRunner(
             env = env,
         )
     }
+
+    private fun processEnvironment(context: WorkspaceShellContext, loader: File): Array<String> = buildList {
+        add("PROOT_LOADER=${loader.absolutePath}")
+        add("PROOT_TMP_DIR=${context.tempDir.absolutePath}")
+        add("TMPDIR=${context.tempDir.absolutePath}")
+        if (context.shellCompatibilityMode) {
+            add("PROOT_NO_SECCOMP=1")
+        }
+    }.toTypedArray()
 
     private fun buildCommand(
         context: WorkspaceShellContext,

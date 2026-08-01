@@ -125,4 +125,5 @@ data class WorkspaceShellSessionResult(
     val exitCode: Int? = null,
     val timedOut: Boolean = false,
     val truncated: Boolean = false,
+    val pty: Boolean = false,
 )
