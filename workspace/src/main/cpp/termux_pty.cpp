@@ -2,6 +2,7 @@
 #include <android/log.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -144,7 +145,11 @@ Java_com_termux_terminal_JNI_setPtyWindowSize(JNIEnv *, jclass, jint fd, jint ro
 extern "C" JNIEXPORT jint JNICALL
 Java_com_termux_terminal_JNI_waitFor(JNIEnv *, jclass, jint pid) {
     int status = 0;
-    if (waitpid(pid, &status, 0) < 0) return -1;
+    pid_t result;
+    do {
+        result = waitpid(pid, &status, 0);
+    } while (result < 0 && errno == EINTR);
+    if (result < 0) return -1;
     if (WIFEXITED(status)) return WEXITSTATUS(status);
     if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
     return status;
@@ -152,5 +157,76 @@ Java_com_termux_terminal_JNI_waitFor(JNIEnv *, jclass, jint pid) {
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_termux_terminal_JNI_close(JNIEnv *, jclass, jint fd) {
+    close(fd);
+}
+
+// Workspace shell bindings reuse the same PTY implementation without depending on Termux's Java session classes.
+extern "C" JNIEXPORT jint JNICALL
+Java_me_rerere_workspace_WorkspacePtyNative_createSubprocess(
+        JNIEnv *env,
+        jclass clazz,
+        jstring cmd,
+        jstring cwd,
+        jobjectArray args,
+        jobjectArray env_vars,
+        jintArray process_id,
+        jint rows,
+        jint columns) {
+    return Java_com_termux_terminal_JNI_createSubprocess(
+            env, clazz, cmd, cwd, args, env_vars, process_id, rows, columns);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_me_rerere_workspace_WorkspacePtyNative_setWindowSize(
+        JNIEnv *env, jclass clazz, jint fd, jint rows, jint columns) {
+    Java_com_termux_terminal_JNI_setPtyWindowSize(env, clazz, fd, rows, columns);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_me_rerere_workspace_WorkspacePtyNative_waitFor(JNIEnv *env, jclass clazz, jint pid) {
+    return Java_com_termux_terminal_JNI_waitFor(env, clazz, pid);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_me_rerere_workspace_WorkspacePtyNative_read(
+        JNIEnv *env, jclass, jint fd, jbyteArray buffer, jint offset, jint length) {
+    const jsize buffer_length = env->GetArrayLength(buffer);
+    if (offset < 0 || length < 0 || offset > buffer_length - length) return -EINVAL;
+    jbyte *bytes = env->GetByteArrayElements(buffer, nullptr);
+    if (bytes == nullptr) return -ENOMEM;
+    ssize_t result;
+    do {
+        result = read(fd, bytes + offset, static_cast<size_t>(length));
+    } while (result < 0 && errno == EINTR);
+    const int error = errno;
+    env->ReleaseByteArrayElements(buffer, bytes, 0);
+    return result < 0 ? -error : static_cast<jint>(result);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_me_rerere_workspace_WorkspacePtyNative_write(
+        JNIEnv *env, jclass, jint fd, jbyteArray buffer, jint offset, jint length) {
+    const jsize buffer_length = env->GetArrayLength(buffer);
+    if (offset < 0 || length < 0 || offset > buffer_length - length) return -EINVAL;
+    jbyte *bytes = env->GetByteArrayElements(buffer, nullptr);
+    if (bytes == nullptr) return -ENOMEM;
+    ssize_t result;
+    do {
+        result = write(fd, bytes + offset, static_cast<size_t>(length));
+    } while (result < 0 && errno == EINTR);
+    const int error = errno;
+    env->ReleaseByteArrayElements(buffer, bytes, JNI_ABORT);
+    return result < 0 ? -error : static_cast<jint>(result);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_me_rerere_workspace_WorkspacePtyNative_killProcessGroup(JNIEnv *, jclass, jint pid) {
+    if (kill(-pid, SIGKILL) != 0 && errno == ESRCH) {
+        kill(pid, SIGKILL);
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_me_rerere_workspace_WorkspacePtyNative_close(JNIEnv *, jclass, jint fd) {
     close(fd);
 }
