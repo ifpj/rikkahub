@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastFilter
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Alert01
 import me.rerere.hugeicons.stroke.Icon1stBracket
@@ -281,6 +283,7 @@ fun McpPicker(
     onUpdateAssistant: (Assistant) -> Unit
 ) {
     val mcpManager = koinInject<McpManager>()
+    val coroutineScope = rememberCoroutineScope()
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
@@ -296,30 +299,45 @@ fun McpPicker(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    when (status) {
-                        McpStatus.Idle -> Icon(
-                            if (server.commonOptions.skipStartupInitialization) {
-                                HugeIcons.McpServer
-                            } else {
-                                HugeIcons.Icon1stBracket
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable(
+                                enabled = status != McpStatus.Connecting &&
+                                    status !is McpStatus.Reconnecting &&
+                                    status != McpStatus.Authorizing,
+                            ) {
+                                coroutineScope.launch {
+                                    mcpManager.reconnect(server)
+                                }
                             },
-                            null
-                        )
-                        McpStatus.Connecting -> CircularProgressIndicator(
-                            modifier = Modifier.size(
-                                24.dp
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        when (status) {
+                            McpStatus.Idle -> Icon(
+                                if (server.commonOptions.skipStartupInitialization) {
+                                    HugeIcons.McpServer
+                                } else {
+                                    HugeIcons.Icon1stBracket
+                                },
+                                null
                             )
-                        )
+                            McpStatus.Connecting -> CircularProgressIndicator(
+                                modifier = Modifier.size(
+                                    24.dp
+                                )
+                            )
 
-                        McpStatus.Connected -> Icon(HugeIcons.McpServer, null)
-                        is McpStatus.Reconnecting -> CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp)
-                        )
-                        is McpStatus.Error -> Icon(HugeIcons.Alert01, null)
-                        McpStatus.NeedsAuthorization -> Icon(HugeIcons.Alert01, null)
-                        McpStatus.Authorizing -> CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp)
-                        )
+                            McpStatus.Connected -> Icon(HugeIcons.McpServer, null)
+                            is McpStatus.Reconnecting -> CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp)
+                            )
+                            is McpStatus.Error -> Icon(HugeIcons.Alert01, null)
+                            McpStatus.NeedsAuthorization -> Icon(HugeIcons.Alert01, null)
+                            McpStatus.Authorizing -> CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                     Column(
                         modifier = Modifier.weight(1f),

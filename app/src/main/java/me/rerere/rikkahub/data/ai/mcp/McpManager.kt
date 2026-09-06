@@ -161,6 +161,8 @@ class McpManager(
 
     suspend fun sync(config: McpServerConfig) = sessionRegistry.sync(config.id)
 
+    suspend fun reconnect(config: McpServerConfig) = sessionRegistry.reconnect(config.id)
+
     fun startAuthorization(config: McpServerConfig, context: Context) {
         oauthCoordinator.startAuthorization(config, context)
     }

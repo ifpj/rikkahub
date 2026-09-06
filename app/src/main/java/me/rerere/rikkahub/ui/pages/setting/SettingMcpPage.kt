@@ -375,7 +375,7 @@ private fun McpServerItem(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val canSync = item.commonOptions.enable &&
+                val canReconnect = item.commonOptions.enable &&
                     status != McpStatus.Connecting &&
                     status !is McpStatus.Reconnecting &&
                     status != McpStatus.Authorizing
@@ -383,8 +383,8 @@ private fun McpServerItem(
                     modifier = Modifier
                         .size(24.dp)
                         .clip(CircleShape)
-                        .clickable(enabled = canSync) {
-                            scope.launch { mcpManager.sync(item) }
+                        .clickable(enabled = canReconnect) {
+                            scope.launch { mcpManager.reconnect(item) }
                         },
                     contentAlignment = Alignment.Center,
                 ) {
