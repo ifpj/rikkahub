@@ -224,6 +224,28 @@ internal class McpSessionRegistry(
             ?.let { addClient(it) }
     }
 
+    suspend fun reconnect(configId: Uuid) {
+        val config = settingsStore.settingsFlow.value.mcpServers.find {
+            it.id == configId &&
+                it.commonOptions.enable &&
+                it.commonOptions.name.isNotBlank()
+        } ?: return
+
+        val session = sessions[configId]
+        if (session == null) {
+            addClient(config)
+            return
+        }
+
+        session.config = config
+        connectSession(
+            session = session,
+            requestedConfig = config,
+            cancelPendingReconnect = true,
+            forceReconnect = true,
+        )
+    }
+
     private suspend fun connectSession(
         session: McpSession,
         requestedConfig: McpServerConfig,
