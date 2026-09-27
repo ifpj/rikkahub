@@ -94,6 +94,9 @@ class ProotShellRunner(
                     val (name, value) = entry.split('=', limit = 2)
                     environment()[name] = value
                 }
+                if (!context.shellCompatibilityMode) {
+                    environment().remove("PROOT_NO_SECCOMP")
+                }
             }
             .start()
 

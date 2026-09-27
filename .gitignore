@@ -11,3 +11,7 @@ local.properties
 .cursor
 .history
 .kotlin
+.local-tools
+.android-sdk
+.gradle-home
+.pnpm-store
