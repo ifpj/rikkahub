@@ -70,7 +70,6 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 22, to = 23, spec = Migration_22_23::class),
         AutoMigration(from = 23, to = 24),
         AutoMigration(from = 24, to = 25),
-        AutoMigration(from = 25, to = 26),
         AutoMigration(from = 26, to = 27),
         AutoMigration(from = 28, to = 29, spec = Migration_28_29::class),
     ]
