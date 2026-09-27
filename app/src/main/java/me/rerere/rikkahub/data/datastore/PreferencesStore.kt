@@ -510,16 +510,6 @@ class SettingsStore(
         update(fn(settingsFlow.value))
     }
 
-    // 只原子地修改单个 key, 不能用 update() 写回整份快照
-    suspend fun incrementLaunchCount(): Int {
-        var count = 0
-        dataStore.edit { preferences ->
-            count = (preferences[LAUNCH_COUNT] ?: 0) + 1
-            preferences[LAUNCH_COUNT] = count
-        }
-        return count
-    }
-
     suspend fun updateAssistant(assistantId: Uuid) {
         val settings = settingsFlow.value
         val selectedId = settings.resolveAssistantId(assistantId)
