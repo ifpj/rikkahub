@@ -2,10 +2,7 @@ use axum::{
     extract::{Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware::{self, Next},
-    response::{
-        sse::{Event, KeepAlive, Sse},
-        IntoResponse, Response,
-    },
+    response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -24,14 +21,12 @@ use rmcp::{
 };
 use serde_json::{json, Value};
 use std::{
-    borrow::Cow, collections::HashMap, convert::Infallible, env, net::SocketAddr, path::PathBuf,
-    sync::Arc, time::Duration,
+    borrow::Cow, collections::HashMap, env, net::SocketAddr, path::PathBuf, sync::Arc,
+    time::Duration,
 };
 use tokio::{process::Command, sync::Mutex, time::sleep};
 use uuid::Uuid;
 
-#[allow(dead_code)]
-const PROTOCOL_VERSION: &str = "2024-11-05";
 const SERVER_VERSION: &str = "0.1.0";
 const DEFAULT_YIELD_MS: u64 = 1_000;
 const MAX_YIELD_MS: u64 = 30_000;
@@ -91,7 +86,6 @@ struct Config {
 #[derive(Debug, Clone)]
 struct SessionState {
     name: String,
-    owner: String,
     last_snapshot: String,
     timeout_ms: u64,
     exit_code: Option<i32>,
@@ -152,21 +146,15 @@ impl ServerHandler for TermuxMcpServer {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        context: RequestContext<rmcp::RoleServer>,
+        _context: RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let owner = client_session_id(&context).ok_or_else(|| {
-            ErrorData::invalid_request(
-                "MCP session identity is missing; reconnect the Streamable HTTP session",
-                None,
-            )
-        })?;
         let args = request
             .arguments
             .map(Value::Object)
             .unwrap_or_else(|| json!({}));
         let result = match request.name.as_ref() {
-            "exec_command" => execute_command(&self.state, &args, &owner).await,
-            "write_stdin" => write_stdin(&self.state, &args, &owner).await,
+            "exec_command" => execute_command(&self.state, &args).await,
+            "write_stdin" => write_stdin(&self.state, &args).await,
             name => {
                 return Err(ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -179,15 +167,6 @@ impl ServerHandler for TermuxMcpServer {
             Err(error) => Ok(CallToolResult::error(vec![ContentBlock::text(error.0)]).into()),
         }
     }
-}
-
-fn client_session_id(context: &RequestContext<rmcp::RoleServer>) -> Option<String> {
-    context
-        .extensions
-        .get::<axum::http::request::Parts>()
-        .and_then(|parts| parts.headers.get("mcp-session-id"))
-        .and_then(|value| value.to_str().ok())
-        .map(ToOwned::to_owned)
 }
 
 #[tokio::main]
@@ -212,26 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
-    let mcp_state = state.clone();
-    let mcp_service = StreamableHttpService::new(
-        move || {
-            Ok(TermuxMcpServer {
-                state: mcp_state.clone(),
-            })
-        },
-        Arc::new(LocalSessionManager::default()),
-        StreamableHttpServerConfig::default()
-            .with_legacy_session_mode(true)
-            .with_json_response(true),
-    );
-    let router = Router::new()
-        .route("/health", get(health))
-        .nest_service("/mcp", mcp_service)
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            authorize_request,
-        ))
-        .with_state(state);
+    let router = build_router(state);
     let address = SocketAddr::new(bind, args.port);
     println!("rikkahub-shell-mcp listening on http://{address}/mcp");
     if let Some(token) = env::var_os("RIKKAHUB_SHELL_MCP_TOKEN") {
@@ -245,6 +205,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn build_router(state: AppState) -> Router {
+    let mcp_state = state.clone();
+    let mcp_service = StreamableHttpService::new(
+        move || {
+            Ok(TermuxMcpServer {
+                state: mcp_state.clone(),
+            })
+        },
+        Arc::new(LocalSessionManager::default()),
+        StreamableHttpServerConfig::default()
+            .with_legacy_session_mode(true)
+            .with_json_response(true),
+    );
+    Router::new()
+        .route("/health", get(health))
+        .nest_service("/mcp", mcp_service)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            authorize_request,
+        ))
+        .with_state(state)
+}
+
 async fn health() -> Response {
     Json(json!({
         "ok": true,
@@ -252,74 +235,6 @@ async fn health() -> Response {
         "version": SERVER_VERSION,
     }))
     .into_response()
-}
-
-#[allow(dead_code)]
-async fn sse_stream(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(response) = authorize(&state, &headers) {
-        return *response;
-    }
-    let stream = futures_stream::unfold((), |state| async move {
-        sleep(Duration::from_secs(15)).await;
-        Some((
-            Ok::<_, Infallible>(Event::default().comment("keep-alive")),
-            state,
-        ))
-    });
-    Sse::new(stream)
-        .keep_alive(
-            KeepAlive::new()
-                .interval(Duration::from_secs(15))
-                .text("keep-alive"),
-        )
-        .into_response()
-}
-
-#[allow(dead_code)]
-async fn mcp_delete(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(response) = authorize(&state, &headers) {
-        return *response;
-    }
-    StatusCode::NO_CONTENT.into_response()
-}
-
-#[allow(dead_code)]
-async fn mcp_post(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(message): Json<Value>,
-) -> Response {
-    if let Err(response) = authorize(&state, &headers) {
-        return *response;
-    }
-
-    if message.is_array() {
-        return json_rpc_error(
-            Value::Null,
-            -32600,
-            "Batch JSON-RPC messages are not supported by this local server",
-        );
-    }
-
-    let id = message.get("id").cloned().unwrap_or(Value::Null);
-    let method = message.get("method").and_then(Value::as_str).unwrap_or("");
-    if id.is_null() {
-        handle_notification(&state, method, &message).await;
-        return StatusCode::ACCEPTED.into_response();
-    }
-
-    let result = match method {
-        "initialize" => initialize_result(&message),
-        "ping" => Ok(json!({})),
-        "tools/list" => Ok(tools_list_result()),
-        "tools/call" => handle_tool_call(&state, &message).await,
-        _ => Err((-32601, format!("Method not found: {method}"))),
-    };
-
-    match result {
-        Ok(value) => Json(json!({ "jsonrpc": "2.0", "id": id, "result": value })).into_response(),
-        Err((code, message)) => json_rpc_error(id, code, &message),
-    }
 }
 
 fn exec_command_tool() -> Tool {
@@ -363,108 +278,7 @@ fn write_stdin_tool() -> Tool {
     )
 }
 
-#[allow(dead_code)]
-async fn handle_notification(_state: &AppState, _method: &str, _message: &Value) {}
-
-#[allow(dead_code)]
-fn initialize_result(message: &Value) -> Result<Value, (i64, String)> {
-    let requested = message
-        .pointer("/params/protocolVersion")
-        .and_then(Value::as_str)
-        .unwrap_or(PROTOCOL_VERSION);
-    let protocol_version = match requested {
-        "2024-11-05" | "2025-03-26" | "2025-06-18" | "2025-11-25" => requested,
-        _ => PROTOCOL_VERSION,
-    };
-    Ok(json!({
-        "protocolVersion": protocol_version,
-        "capabilities": {
-            "tools": { "listChanged": false }
-        },
-        "serverInfo": {
-            "name": "rikkahub-shell-mcp",
-            "version": SERVER_VERSION
-        }
-    }))
-}
-
-#[allow(dead_code)]
-fn tools_list_result() -> Value {
-    json!({
-        "tools": [
-            {
-                "name": "exec_command",
-                "description": "Run a shell command in the host environment using a persistent interactive shell session. If the command is still running after yield_time_ms, use write_stdin with the returned session_id. Do not start a second command just to continue an existing session.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "command": { "type": "string", "description": "Shell command to run" },
-                        "workdir": { "type": "string", "description": "Working directory. Defaults to the Termux home directory." },
-                        "timeout_ms": { "type": "integer", "description": "Maximum session lifetime in milliseconds. Defaults to 30000." },
-                        "yield_time_ms": { "type": "integer", "description": "How long to wait before returning output. Defaults to 1000." },
-                        "max_output_chars": { "type": "integer", "description": "Maximum output characters returned to the model. Defaults to 12000." },
-                        "rows": { "type": "integer", "description": "Initial terminal height. Defaults to 24." },
-                        "columns": { "type": "integer", "description": "Initial terminal width. Defaults to 120." }
-                    },
-                    "required": ["command"]
-                }
-            },
-            {
-                "name": "write_stdin",
-                "description": "Continue an existing exec_command session. Use empty chars to poll output, chars to send input, interrupt for Ctrl+C, close_stdin for EOF, or terminate to stop the session.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "session_id": { "type": "string", "description": "Session ID returned by exec_command" },
-                        "chars": { "type": "string", "description": "Text to write to the process stdin" },
-                        "yield_time_ms": { "type": "integer", "description": "How long to wait for output after writing or polling. Defaults to 1000." },
-                        "close_stdin": { "type": "boolean", "description": "Send EOF after writing" },
-                        "interrupt": { "type": "boolean", "description": "Send Ctrl+C to the foreground process" },
-                        "terminate": { "type": "boolean", "description": "Terminate the tmux session" },
-                        "rows": { "type": "integer", "description": "New terminal height; columns must also be provided." },
-                        "columns": { "type": "integer", "description": "New terminal width; rows must also be provided." },
-                    },
-                    "required": ["session_id"]
-                }
-            }
-        ]
-    })
-}
-
-#[allow(dead_code)]
-async fn handle_tool_call(state: &AppState, message: &Value) -> Result<Value, (i64, String)> {
-    let name = message
-        .pointer("/params/name")
-        .and_then(Value::as_str)
-        .ok_or((-32602, "tools/call requires params.name".to_string()))?;
-    let args = message
-        .pointer("/params/arguments")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-
-    let result = match name {
-        "exec_command" => execute_command(state, &args, "legacy").await,
-        "write_stdin" => write_stdin(state, &args, "legacy").await,
-        _ => Err(ServerError::message(format!("Unknown tool: {name}"))),
-    };
-
-    match result {
-        Ok(text) => Ok(json!({
-            "content": [{ "type": "text", "text": text }],
-            "isError": false
-        })),
-        Err(error) => Ok(json!({
-            "content": [{ "type": "text", "text": error.0 }],
-            "isError": true
-        })),
-    }
-}
-
-async fn execute_command(
-    state: &AppState,
-    args: &Value,
-    owner: &str,
-) -> Result<String, ServerError> {
+async fn execute_command(state: &AppState, args: &Value) -> Result<String, ServerError> {
     let command = required_string(args, "command")?;
     if command.trim().is_empty() {
         return Err(ServerError::message("command must not be empty"));
@@ -477,8 +291,10 @@ async fn execute_command(
     let columns = bounded_u16(args, "columns", DEFAULT_COLUMNS, 1, 500);
 
     let session_id = Uuid::new_v4();
-    let session_name = format!("{SESSION_PREFIX}{session_id}");
-    let script_dir = session_dir(session_id)?;
+    // Keep the public continuation token out of tmux names and filesystem paths.
+    let runtime_id = Uuid::new_v4();
+    let session_name = format!("{SESSION_PREFIX}{runtime_id}");
+    let script_dir = session_dir(runtime_id)?;
     std::fs::create_dir_all(&script_dir).map_err(|error| {
         ServerError::message(format!("cannot create session directory: {error}"))
     })?;
@@ -518,7 +334,6 @@ async fn execute_command(
 
     let session_state = SessionState {
         name: session_name.clone(),
-        owner: owner.to_owned(),
         last_snapshot: String::new(),
         timeout_ms,
         exit_code: None,
@@ -535,9 +350,9 @@ async fn execute_command(
     Ok(format_session_result(session_id, output))
 }
 
-async fn write_stdin(state: &AppState, args: &Value, owner: &str) -> Result<String, ServerError> {
+async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerError> {
     let session_id = required_uuid(args, "session_id")?;
-    let state_entry = ensure_session(state, session_id, Some(owner)).await?;
+    let state_entry = ensure_session(state, session_id).await?;
     let name = state_entry.name.clone();
     let max_output = bounded_usize(args, "max_output_chars", DEFAULT_MAX_OUTPUT, MAX_OUTPUT);
     let yield_ms = bounded_u64(args, "yield_time_ms", DEFAULT_YIELD_MS, MAX_YIELD_MS);
@@ -617,7 +432,7 @@ async fn poll_session(
     session_id: Uuid,
     max_output: usize,
 ) -> Result<PollResult, ServerError> {
-    let session = ensure_session(state, session_id, None).await?;
+    let session = ensure_session(state, session_id).await?;
     if !has_session(state, &session.name).await {
         return Ok(PollResult {
             status: SessionStatus::Completed(session.exit_code.unwrap_or(1)),
@@ -683,11 +498,7 @@ fn format_session_result(session_id: Uuid, result: PollResult) -> String {
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
 }
 
-async fn ensure_session(
-    state: &AppState,
-    session_id: Uuid,
-    owner: Option<&str>,
-) -> Result<SessionState, ServerError> {
+async fn ensure_session(state: &AppState, session_id: Uuid) -> Result<SessionState, ServerError> {
     let session = state
         .sessions
         .lock()
@@ -695,11 +506,6 @@ async fn ensure_session(
         .get(&session_id)
         .cloned()
         .ok_or_else(|| ServerError::message(format!("Shell session {session_id} is not known")))?;
-    if owner.is_some_and(|owner| session.owner != owner) {
-        return Err(ServerError::message(format!(
-            "Shell session {session_id} belongs to another MCP client"
-        )));
-    }
     if !has_session(state, &session.name).await && session.exit_code.is_none() {
         return Err(ServerError::message(format!(
             "Shell session {session_id} is not running"
@@ -830,7 +636,7 @@ async fn kill_session(state: &AppState, name: &str) -> Result<(), ServerError> {
         .map(|_| ())
 }
 
-fn session_dir(session_id: Uuid) -> Result<PathBuf, ServerError> {
+fn session_dir(runtime_id: Uuid) -> Result<PathBuf, ServerError> {
     let home = env::var_os("HOME").map(PathBuf::from).ok_or_else(|| {
         ServerError::message(
             "HOME is not set; start the MCP server from the host shell environment",
@@ -840,7 +646,7 @@ fn session_dir(session_id: Uuid) -> Result<PathBuf, ServerError> {
         .join(".cache")
         .join("rikkahub-shell-mcp")
         .join("sessions")
-        .join(session_id.to_string()))
+        .join(runtime_id.to_string()))
 }
 
 fn resolve_workdir(raw: Option<&str>) -> Result<PathBuf, ServerError> {
@@ -991,19 +797,167 @@ fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), Box<Response>>
     }
 }
 
-#[allow(dead_code)]
-fn json_rpc_error(id: Value, code: i64, message: &str) -> Response {
-    (
-        StatusCode::OK,
-        Json(json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": { "code": code, "message": message }
-        })),
-    )
-        .into_response()
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::{to_bytes, Body},
+        http::Request,
+    };
+    use tower::ServiceExt;
 
-mod futures_stream {
-    pub use futures_util::stream::unfold;
+    fn test_router() -> Router {
+        build_router(AppState {
+            config: Arc::new(Config {
+                token: None,
+                tmux: "tmux".into(),
+                tmux_socket: "test".into(),
+            }),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+
+    async fn send_request(router: Router, request: Request<Body>) -> (HeaderMap, Value) {
+        let response = router.oneshot(request).await.unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        let json_text = body_text
+            .lines()
+            .find_map(|line| line.strip_prefix("data: {"))
+            .map(|line| format!("{{{line}"))
+            .unwrap_or_else(|| body_text.clone());
+        let value: Value = serde_json::from_str(&json_text)
+            .unwrap_or_else(|_| panic!("status={status}, body={body_text}"));
+        assert_eq!(status, StatusCode::OK, "{value}");
+        (headers, value)
+    }
+
+    #[tokio::test]
+    async fn modern_tool_call_needs_no_client_specific_header() {
+        let router = test_router();
+        let discover = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "server/discover",
+            "params": { "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": { "name": "test", "version": "1.0" },
+                "io.modelcontextprotocol/clientCapabilities": {}
+            } }
+        });
+        let discover_request = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("host", "localhost")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("mcp-protocol-version", "2026-07-28")
+            .header("mcp-method", "server/discover")
+            .body(Body::from(discover.to_string()))
+            .unwrap();
+        let (_, discover_result) = send_request(router.clone(), discover_request).await;
+        assert!(discover_result["result"]["supportedVersions"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("2026-07-28")));
+
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "exec_command",
+                "arguments": { "command": "" },
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": { "name": "test", "version": "1.0" },
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        });
+        let request = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("host", "localhost")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("mcp-protocol-version", "2026-07-28")
+            .header("mcp-method", "tools/call")
+            .header("mcp-name", "exec_command")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let (_, response) = send_request(router, request).await;
+        assert_eq!(response["result"]["isError"], true);
+        assert_eq!(
+            response["result"]["content"][0]["text"],
+            "command must not be empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_initialize_still_uses_standard_mcp_session() {
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": { "name": "test", "version": "1.0" }
+            }
+        });
+        let request = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("host", "localhost")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let router = test_router();
+        let (headers, response) = send_request(router.clone(), request).await;
+        assert_eq!(response["result"]["protocolVersion"], "2025-11-25");
+        let mcp_session_id = headers.get("mcp-session-id").unwrap().to_str().unwrap();
+        let initialized = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("host", "localhost")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("mcp-session-id", mcp_session_id)
+            .header("mcp-protocol-version", "2025-11-25")
+            .body(Body::from(
+                json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }).to_string(),
+            ))
+            .unwrap();
+        let initialized_response = router.clone().oneshot(initialized).await.unwrap();
+        assert_eq!(initialized_response.status(), StatusCode::ACCEPTED);
+
+        let call = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("host", "localhost")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("mcp-session-id", mcp_session_id)
+            .header("mcp-protocol-version", "2025-11-25")
+            .body(Body::from(
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": { "name": "exec_command", "arguments": { "command": "" } }
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let (_, result) = send_request(router, call).await;
+        assert_eq!(result["result"]["isError"], true);
+        assert_eq!(
+            result["result"]["content"][0]["text"],
+            "command must not be empty"
+        );
+    }
 }
