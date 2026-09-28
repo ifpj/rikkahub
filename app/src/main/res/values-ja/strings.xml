@@ -1594,4 +1594,5 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="assistant_page_memory_dream_removed">%sを削除しました</string>
   <string name="memory_file_page_title">タイトル</string>
   <string name="memory_file_page_edit_warning">記憶はできるだけ手動で編集しないでください。代わりに、チャットでAIに覚えてもらうか、変更してもらうよう頼んでください。</string>
+  <string name="chat_page_temporary_chat_hint">一時チャットは履歴に表示されず、退出すると削除されます。</string>
 </resources>

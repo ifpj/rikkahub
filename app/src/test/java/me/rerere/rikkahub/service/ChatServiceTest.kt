@@ -12,7 +12,6 @@ import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.data.ai.tools.shouldUseExternalWebSearch
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
-<<<<<<< HEAD
 import me.rerere.rikkahub.data.model.ConversationConfig
 import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.utils.JsonInstant

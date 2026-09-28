@@ -1598,4 +1598,5 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="assistant_page_memory_dream_removed">已移除 %s</string>
   <string name="memory_file_page_title">标题</string>
   <string name="memory_file_page_edit_warning">尽量避免手动编辑记忆，推荐在聊天界面让 AI 替你记住或者更改记忆</string>
+  <string name="chat_page_temporary_chat_hint">临时对话不会显示在历史记录中，离开后将被删除。</string>
 </resources>

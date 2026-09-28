@@ -1323,7 +1323,6 @@ class ChatService(
             return // 新会话且为空时不保存
         }
 
-<<<<<<< HEAD
         // 会话落库即视为开始，此时把助手的配置固定到会话上
         val settings = settingsStore.awaitLoaded()
         val updatedConversation = conversation.bindConfig(settings)

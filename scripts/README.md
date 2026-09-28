@@ -19,3 +19,15 @@ should be committed to Git.
 Release APKs are written to `app/build/outputs/apk/release/`. A build signed
 with this new key cannot be installed over an APK signed with the previous CI
 key. Back up the app data before any uninstall or migration.
+
+For the localization tool, install `uv` once into the project-local tool directory:
+
+```powershell
+New-Item -ItemType Directory -Force .local-tools | Out-Null
+$env:UV_UNMANAGED_INSTALL = (Join-Path (Resolve-Path .local-tools).Path 'uv')
+Invoke-RestMethod 'https://astral.sh/uv/install.ps1' | Invoke-Expression
+```
+
+Then run `& .\scripts\uv.ps1 run --directory locale-tui src/main.py --help`.
+The wrapper keeps the uv cache and managed Python versions under `.local-tools`
+on this drive. These local tools and caches are ignored by Git.
