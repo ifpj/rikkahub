@@ -1,6 +1,6 @@
-# RikkaHub Termux MCP
+# RikkaHub Shell MCP
 
-这是一个在 Termux 中运行的轻量 Rust MCP Server。协议层使用官方 Rust MCP SDK `rmcp`，只提供两个和 Codex Shell 对齐的工具：
+这是一个通过 HTTP 暴露交互式 Shell 的轻量 Rust MCP Server。协议层使用官方 Rust MCP SDK `rmcp`，只提供两个和 Codex Shell 对齐的工具：
 
 - `exec_command`
 - `write_stdin`
@@ -15,10 +15,10 @@
 pkg install tmux
 ```
 
-将 `rikkahub-termux-mcp` 放到 `$PREFIX/bin/` 后启动：
+将 `rikkahub-shell-mcp` 放到 `$PREFIX/bin/` 后启动：
 
 ```bash
-rikkahub-termux-mcp --port 38741 --token '替换为随机长字符串'
+rikkahub-shell-mcp --port 38741 --token '替换为随机长字符串'
 ```
 
 服务地址：
@@ -48,7 +48,7 @@ cargo install cargo-ndk
 cargo ndk -t arm64-v8a build --release
 ```
 
-然后将 `target/aarch64-linux-android/release/rikkahub-termux-mcp` 复制到 Termux 的 `$PREFIX/bin/`。
+然后将 `target/aarch64-linux-android/release/rikkahub-shell-mcp` 复制到 Termux 的 `$PREFIX/bin/`。
 
 ## 说明
 

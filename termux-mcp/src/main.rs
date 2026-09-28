@@ -45,31 +45,31 @@ const SESSION_PREFIX: &str = "rikkahub-";
 
 #[derive(Debug, Parser, Clone)]
 #[command(
-    name = "rikkahub-termux-mcp",
+    name = "rikkahub-shell-mcp",
     version,
-    about = "Interactive Termux shell MCP server"
+    about = "Interactive HTTP shell MCP server"
 )]
 struct Args {
     /// Address to listen on. Keep this on localhost for security.
-    #[arg(long, env = "RIKKAHUB_TERMUX_MCP_BIND", default_value = "127.0.0.1")]
+    #[arg(long, env = "RIKKAHUB_SHELL_MCP_BIND", default_value = "127.0.0.1")]
     bind: String,
 
     /// HTTP port used by the MCP endpoint.
-    #[arg(long, env = "RIKKAHUB_TERMUX_MCP_PORT", default_value_t = 38741)]
+    #[arg(long, env = "RIKKAHUB_SHELL_MCP_PORT", default_value_t = 38741)]
     port: u16,
 
     /// Bearer token required by RikkaHub. If omitted, the server accepts local requests without authentication.
-    #[arg(long, env = "RIKKAHUB_TERMUX_MCP_TOKEN")]
+    #[arg(long, env = "RIKKAHUB_SHELL_MCP_TOKEN")]
     token: Option<String>,
 
     /// tmux executable. Useful when Termux uses a non-standard installation.
-    #[arg(long, env = "RIKKAHUB_TERMUX_MCP_TMUX", default_value = "tmux")]
+    #[arg(long, env = "RIKKAHUB_SHELL_MCP_TMUX", default_value = "tmux")]
     tmux: String,
 
     /// Dedicated tmux socket name so RikkaHub sessions do not collide with user sessions.
     #[arg(
         long,
-        env = "RIKKAHUB_TERMUX_MCP_TMUX_SOCKET",
+        env = "RIKKAHUB_SHELL_MCP_TMUX_SOCKET",
         default_value = "rikkahub"
     )]
     tmux_socket: String,
@@ -91,6 +91,7 @@ struct Config {
 #[derive(Debug, Clone)]
 struct SessionState {
     name: String,
+    owner: String,
     last_snapshot: String,
     timeout_ms: u64,
     exit_code: Option<i32>,
@@ -124,7 +125,7 @@ impl ServerHandler for TermuxMcpServer {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_protocol_version(ProtocolVersion::V_2024_11_05)
-            .with_server_info(Implementation::new("rikkahub-termux-mcp", SERVER_VERSION))
+            .with_server_info(Implementation::new("rikkahub-shell-mcp", SERVER_VERSION))
     }
 
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
@@ -151,15 +152,21 @@ impl ServerHandler for TermuxMcpServer {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<rmcp::RoleServer>,
+        context: RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
+        let owner = client_session_id(&context).ok_or_else(|| {
+            ErrorData::invalid_request(
+                "MCP session identity is missing; reconnect the Streamable HTTP session",
+                None,
+            )
+        })?;
         let args = request
             .arguments
             .map(Value::Object)
             .unwrap_or_else(|| json!({}));
         let result = match request.name.as_ref() {
-            "exec_command" => execute_command(&self.state, &args).await,
-            "write_stdin" => write_stdin(&self.state, &args).await,
+            "exec_command" => execute_command(&self.state, &args, &owner).await,
+            "write_stdin" => write_stdin(&self.state, &args, &owner).await,
             name => {
                 return Err(ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -172,6 +179,15 @@ impl ServerHandler for TermuxMcpServer {
             Err(error) => Ok(CallToolResult::error(vec![ContentBlock::text(error.0)]).into()),
         }
     }
+}
+
+fn client_session_id(context: &RequestContext<rmcp::RoleServer>) -> Option<String> {
+    context
+        .extensions
+        .get::<axum::http::request::Parts>()
+        .and_then(|parts| parts.headers.get("mcp-session-id"))
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned)
 }
 
 #[tokio::main]
@@ -217,10 +233,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .with_state(state);
     let address = SocketAddr::new(bind, args.port);
-    println!("rikkahub-termux-mcp listening on http://{address}/mcp");
-    if let Some(token) = env::var_os("RIKKAHUB_TERMUX_MCP_TOKEN") {
+    println!("rikkahub-shell-mcp listening on http://{address}/mcp");
+    if let Some(token) = env::var_os("RIKKAHUB_SHELL_MCP_TOKEN") {
         if token.is_empty() {
-            eprintln!("warning: RIKKAHUB_TERMUX_MCP_TOKEN is empty");
+            eprintln!("warning: RIKKAHUB_SHELL_MCP_TOKEN is empty");
         }
     }
 
@@ -232,7 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn health() -> Response {
     Json(json!({
         "ok": true,
-        "server": "rikkahub-termux-mcp",
+        "server": "rikkahub-shell-mcp",
         "version": SERVER_VERSION,
     }))
     .into_response()
@@ -309,7 +325,7 @@ async fn mcp_post(
 fn exec_command_tool() -> Tool {
     Tool::new(
         "exec_command",
-        "Run a shell command in the user's Termux environment using a persistent interactive shell session. If the command is still running after yield_time_ms, use write_stdin with the returned session_id. Do not start a second command just to continue an existing session.",
+        "Run a shell command in the host environment using a persistent interactive shell session. If the command is still running after yield_time_ms, use write_stdin with the returned session_id. Do not start a second command just to continue an existing session.",
         json!({
             "type": "object",
             "properties": {
@@ -366,7 +382,7 @@ fn initialize_result(message: &Value) -> Result<Value, (i64, String)> {
             "tools": { "listChanged": false }
         },
         "serverInfo": {
-            "name": "rikkahub-termux-mcp",
+            "name": "rikkahub-shell-mcp",
             "version": SERVER_VERSION
         }
     }))
@@ -378,7 +394,7 @@ fn tools_list_result() -> Value {
         "tools": [
             {
                 "name": "exec_command",
-                "description": "Run a shell command in the user's Termux environment using a persistent interactive shell session. If the command is still running after yield_time_ms, use write_stdin with the returned session_id. Do not start a second command just to continue an existing session.",
+                "description": "Run a shell command in the host environment using a persistent interactive shell session. If the command is still running after yield_time_ms, use write_stdin with the returned session_id. Do not start a second command just to continue an existing session.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -427,8 +443,8 @@ async fn handle_tool_call(state: &AppState, message: &Value) -> Result<Value, (i
         .unwrap_or_else(|| json!({}));
 
     let result = match name {
-        "exec_command" => execute_command(state, &args).await,
-        "write_stdin" => write_stdin(state, &args).await,
+        "exec_command" => execute_command(state, &args, "legacy").await,
+        "write_stdin" => write_stdin(state, &args, "legacy").await,
         _ => Err(ServerError::message(format!("Unknown tool: {name}"))),
     };
 
@@ -444,7 +460,11 @@ async fn handle_tool_call(state: &AppState, message: &Value) -> Result<Value, (i
     }
 }
 
-async fn execute_command(state: &AppState, args: &Value) -> Result<String, ServerError> {
+async fn execute_command(
+    state: &AppState,
+    args: &Value,
+    owner: &str,
+) -> Result<String, ServerError> {
     let command = required_string(args, "command")?;
     if command.trim().is_empty() {
         return Err(ServerError::message("command must not be empty"));
@@ -498,6 +518,7 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
 
     let session_state = SessionState {
         name: session_name.clone(),
+        owner: owner.to_owned(),
         last_snapshot: String::new(),
         timeout_ms,
         exit_code: None,
@@ -514,9 +535,9 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
     Ok(format_session_result(session_id, output))
 }
 
-async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerError> {
+async fn write_stdin(state: &AppState, args: &Value, owner: &str) -> Result<String, ServerError> {
     let session_id = required_uuid(args, "session_id")?;
-    let state_entry = ensure_session(state, session_id).await?;
+    let state_entry = ensure_session(state, session_id, Some(owner)).await?;
     let name = state_entry.name.clone();
     let max_output = bounded_usize(args, "max_output_chars", DEFAULT_MAX_OUTPUT, MAX_OUTPUT);
     let yield_ms = bounded_u64(args, "yield_time_ms", DEFAULT_YIELD_MS, MAX_YIELD_MS);
@@ -596,7 +617,7 @@ async fn poll_session(
     session_id: Uuid,
     max_output: usize,
 ) -> Result<PollResult, ServerError> {
-    let session = ensure_session(state, session_id).await?;
+    let session = ensure_session(state, session_id, None).await?;
     if !has_session(state, &session.name).await {
         return Ok(PollResult {
             status: SessionStatus::Completed(session.exit_code.unwrap_or(1)),
@@ -662,30 +683,28 @@ fn format_session_result(session_id: Uuid, result: PollResult) -> String {
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
 }
 
-async fn ensure_session(state: &AppState, session_id: Uuid) -> Result<SessionState, ServerError> {
+async fn ensure_session(
+    state: &AppState,
+    session_id: Uuid,
+    owner: Option<&str>,
+) -> Result<SessionState, ServerError> {
     let session = state
         .sessions
         .lock()
         .await
         .get(&session_id)
         .cloned()
-        .unwrap_or_else(|| SessionState {
-            name: format!("{SESSION_PREFIX}{session_id}"),
-            last_snapshot: String::new(),
-            timeout_ms: DEFAULT_TIMEOUT_MS,
-            exit_code: None,
-        });
-    if !has_session(state, &session.name).await && session.exit_code.is_none() {
+        .ok_or_else(|| ServerError::message(format!("Shell session {session_id} is not known")))?;
+    if owner.is_some_and(|owner| session.owner != owner) {
         return Err(ServerError::message(format!(
-            "Termux session {session_id} is not running"
+            "Shell session {session_id} belongs to another MCP client"
         )));
     }
-    state
-        .sessions
-        .lock()
-        .await
-        .entry(session_id)
-        .or_insert_with(|| session.clone());
+    if !has_session(state, &session.name).await && session.exit_code.is_none() {
+        return Err(ServerError::message(format!(
+            "Shell session {session_id} is not running"
+        )));
+    }
     Ok(session)
 }
 
@@ -813,18 +832,22 @@ async fn kill_session(state: &AppState, name: &str) -> Result<(), ServerError> {
 
 fn session_dir(session_id: Uuid) -> Result<PathBuf, ServerError> {
     let home = env::var_os("HOME").map(PathBuf::from).ok_or_else(|| {
-        ServerError::message("HOME is not set; start the MCP server from the Termux environment")
+        ServerError::message(
+            "HOME is not set; start the MCP server from the host shell environment",
+        )
     })?;
     Ok(home
         .join(".cache")
-        .join("rikkahub-termux-mcp")
+        .join("rikkahub-shell-mcp")
         .join("sessions")
         .join(session_id.to_string()))
 }
 
 fn resolve_workdir(raw: Option<&str>) -> Result<PathBuf, ServerError> {
     let home = env::var_os("HOME").map(PathBuf::from).ok_or_else(|| {
-        ServerError::message("HOME is not set; start the MCP server from the Termux environment")
+        ServerError::message(
+            "HOME is not set; start the MCP server from the host shell environment",
+        )
     })?;
     let value = raw.unwrap_or("~");
     let path = if value == "~" {
