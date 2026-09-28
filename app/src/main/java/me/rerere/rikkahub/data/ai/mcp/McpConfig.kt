@@ -81,6 +81,7 @@ sealed class McpServerConfig {
 
     @Serializable
     @SerialName("sse")
+    // Retained only to read existing settings/backups. The transport is no longer available.
     data class SseTransportServer(
         override val id: Uuid = Uuid.random(),
         override val commonOptions: McpCommonOptions = McpCommonOptions(),

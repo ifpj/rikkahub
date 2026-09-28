@@ -38,7 +38,6 @@ zxing = "3.5.4"
 leakcanary = "2.14"
 workmanager = "2.12.0"
 reorderable = "3.1.0"
-mcp = "0.15.0-rikka.4"
 pebble = "4.1.1"
 browser = "1.10.0"
 floatingx = "3.0.0"
@@ -138,7 +137,6 @@ zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" 
 leakcanary-android = { module = "com.squareup.leakcanary:leakcanary-android", version.ref = "leakcanary" }
 reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
 commons-text = { module = "org.apache.commons:commons-text", version.ref = "commons-text" }
-modelcontextprotocol-kotlin-sdk = { module = "com.github.rikkahub.mcp-kotlin-sdk:kotlin-sdk-client", version.ref = "mcp" }
 pebble = { module = "io.pebbletemplates:pebble", version.ref = "pebble" }
 diffutils = { module = "io.github.java-diff-utils:java-diff-utils", version.ref = "diffutils" }
 snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }

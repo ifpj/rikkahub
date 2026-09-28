@@ -409,7 +409,7 @@ private fun McpServerItem(
                 ) {
                     Tag(type = TagType.SUCCESS) {
                         when (item) {
-                            is McpServerConfig.SseTransportServer -> Text("SSE")
+                            is McpServerConfig.SseTransportServer -> Text("SSE (unsupported)")
                             is McpServerConfig.StreamableHTTPServer -> Text("Streamable HTTP")
                         }
                     }
@@ -518,7 +518,7 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
             tools = tools,
         )
         when (type) {
-            "sse" -> McpServerConfig.SseTransportServer(commonOptions = commonOptions, url = url)
+            "sse" -> null
             else -> McpServerConfig.StreamableHTTPServer(commonOptions = commonOptions, url = url)
         }
     }
