@@ -301,7 +301,7 @@ object ShellToolUI : ToolUIRenderer {
     private const val TITLE_MAX_CHARS = 40
     private const val SUMMARY_MAX_LINES = 8
 
-    override val toolName: String = "workspace_shell"
+    override val toolName: String = "workspace_exec_command"
 
     override fun icon(context: ToolUIContext): ImageVector = HugeIcons.ComputerTerminal01
 
@@ -309,10 +309,12 @@ object ShellToolUI : ToolUIRenderer {
     override fun title(context: ToolUIContext): String {
         val command = context.arguments.getStringContent("command")
         if (command == null) {
-            val action = when (context.tool.toolName) {
-                "workspace_shell_wait" -> "wait"
-                "workspace_shell_write" -> "input"
-                else -> return stringResource(R.string.tool_ui_shell_default)
+            val action = when {
+                context.arguments.getStringContent("chars")?.isNotEmpty() == true -> "input"
+                context.arguments.boolean("interrupt") == true -> "interrupt"
+                context.arguments.boolean("close_stdin") == true -> "eof"
+                context.arguments.boolean("terminate") == true -> "terminate"
+                else -> "poll"
             }
             val sessionId = context.arguments.getStringContent("session_id").orEmpty().take(8)
             return "${stringResource(R.string.tool_ui_shell_default)}: $action $sessionId"
@@ -363,7 +365,7 @@ object ShellToolUI : ToolUIRenderer {
             return
         }
         val command = context.arguments.getStringContent("command")
-        val cwd = context.arguments.getStringContent("cwd")
+        val workdir = context.arguments.getStringContent("workdir")
         val sessionId = context.arguments.getStringContent("session_id")
             ?: content.getStringContent("sessionId")
         val stdout = content.getStringContent("stdout").orEmpty()
@@ -391,8 +393,8 @@ object ShellToolUI : ToolUIRenderer {
             HighlightCodeBlock(
                 code = when {
                     command == null -> "session: ${sessionId.orEmpty()}"
-                    cwd.isNullOrBlank() -> command
-                    else -> "# cwd: $cwd\n$command"
+                    workdir.isNullOrBlank() -> command
+                    else -> "# workdir: $workdir\n$command"
                 },
                 language = if (command == null) "plaintext" else "bash",
                 modifier = Modifier.fillMaxWidth(),

@@ -623,9 +623,8 @@ private fun workspaceToolApprovalItems() = listOf(
     Triple("workspace_read_file", stringResource(R.string.workspace_detail_tool_read_file), HugeIcons.FileView),
     Triple("workspace_write_file", stringResource(R.string.workspace_detail_tool_write_file), HugeIcons.PencilEdit01),
     Triple("workspace_edit_file", stringResource(R.string.workspace_detail_tool_edit_file), HugeIcons.FileEdit),
-    Triple("workspace_shell", stringResource(R.string.workspace_detail_tool_shell), HugeIcons.ComputerTerminal01),
-    Triple("workspace_shell_wait", stringResource(R.string.workspace_detail_tool_shell_wait), HugeIcons.ComputerTerminal01),
-    Triple("workspace_shell_write", stringResource(R.string.workspace_detail_tool_shell_write), HugeIcons.ComputerTerminal01),
+    Triple("workspace_exec_command", stringResource(R.string.workspace_detail_tool_shell), HugeIcons.ComputerTerminal01),
+    Triple("workspace_write_stdin", stringResource(R.string.workspace_detail_tool_shell_write), HugeIcons.ComputerTerminal01),
 )
 
 @Composable
