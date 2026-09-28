@@ -1158,7 +1158,7 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="workspace_detail_enable_shell">シェルを有効にする</string>
   <string name="workspace_detail_enable_shell_desc">このワークスペースでローカルのRootfsを使用したターミナル環境の実行を許可します</string>
   <string name="workspace_detail_tool_approval">ツール承認</string>
-  <string name="workspace_detail_tool_approval_desc">有効にすると、AIがこのツールを呼び出す前にユーザーの確認が必要です</string>
+  <string name="workspace_detail_tool_approval_desc">有効にすると、AIがこのツールを呼び出す前に確認が必要です。承認済みコマンドの自動待機では再確認しません</string>
   <string name="workspace_detail_tool_list_files">ファイル一覧</string>
   <string name="workspace_detail_tool_read_file">ファイルを読み込む</string>
   <string name="workspace_detail_tool_write_file">ファイルに書き込む</string>
@@ -1166,6 +1166,8 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="workspace_detail_tool_delete_file">ファイルを削除</string>
   <string name="workspace_detail_tool_move_file">ファイルを移動</string>
   <string name="workspace_detail_tool_shell">コマンド実行</string>
+  <string name="workspace_detail_tool_shell_wait">コマンド出力を待機</string>
+  <string name="workspace_detail_tool_shell_write">コマンドを操作</string>
   <string name="workspace_detail_install_rootfs_desc">tar.gzをダウンロードして、%sのLinuxディレクトリに展開します。</string>
   <string name="workspace_detail_download_url">tar.gz ダウンロードURL</string>
   <string name="workspace_detail_area_files">ファイル</string>

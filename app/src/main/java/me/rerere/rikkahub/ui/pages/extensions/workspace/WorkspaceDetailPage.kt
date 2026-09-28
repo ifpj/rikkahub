@@ -513,6 +513,8 @@ private fun workspaceToolApprovalItems() = listOf(
     "workspace_write_file" to stringResource(R.string.workspace_detail_tool_write_file),
     "workspace_edit_file" to stringResource(R.string.workspace_detail_tool_edit_file),
     "workspace_shell" to stringResource(R.string.workspace_detail_tool_shell),
+    "workspace_shell_wait" to stringResource(R.string.workspace_detail_tool_shell_wait),
+    "workspace_shell_write" to stringResource(R.string.workspace_detail_tool_shell_write),
 )
 
 @Composable

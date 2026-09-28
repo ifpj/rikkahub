@@ -41,6 +41,8 @@ val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
     "workspace_write_file" to false,
     "workspace_edit_file" to false,
     "workspace_shell" to true,
+    "workspace_shell_wait" to false,
+    "workspace_shell_write" to false,
 )
 
 fun resolveWorkspaceToolApproval(name: String, overrides: Map<String, Boolean>): Boolean =
@@ -62,8 +64,8 @@ suspend fun createWorkspaceTools(
         createWriteFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createEditFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd),
-        createShellWaitTool(workspaceId, workspaceRepository),
-        createShellWriteTool(workspaceId, workspaceRepository),
+        createShellWaitTool(workspaceId, ::needsApproval, workspaceRepository),
+        createShellWriteTool(workspaceId, ::needsApproval, workspaceRepository),
     )
 }
 
@@ -322,12 +324,13 @@ private fun createShellTool(
 
 private fun createShellWaitTool(
     workspaceId: String,
+    needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
     name = "workspace_shell_wait",
     description = """
         Resume automatic observation of a running workspace_shell session and return new stdout/stderr.
-        It follows the session until completion or until the PTY appears to request input. No new approval is required.
+        It follows the session until completion or until the PTY appears to request input.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -348,7 +351,7 @@ private fun createShellWaitTool(
             required = listOf("session_id"),
         )
     },
-    needsApproval = { false },
+    needsApproval = { needsApproval("workspace_shell_wait") },
     execute = {
         val params = it.jsonObject
         val sessionId = params.string("session_id") ?: error("session_id is required")
@@ -363,12 +366,13 @@ private fun createShellWaitTool(
 
 private fun createShellWriteTool(
     workspaceId: String,
+    needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
     name = "workspace_shell_write",
     description = """
         Interact with a running workspace_shell PTY: write text, send Ctrl+C or EOF, resize, or terminate the process.
-        This continuation does not require a new approval.
+        Approval follows the workspace tool settings.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -405,7 +409,7 @@ private fun createShellWriteTool(
             required = listOf("session_id"),
         )
     },
-    needsApproval = { false },
+    needsApproval = { needsApproval("workspace_shell_write") },
     execute = {
         val params = it.jsonObject
         val sessionId = params.string("session_id") ?: error("session_id is required")

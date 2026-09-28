@@ -1158,7 +1158,7 @@
   <string name="workspace_detail_enable_shell">Включить оболочку</string>
   <string name="workspace_detail_enable_shell_desc">Разрешить этой рабочей области запускать терминальное окружение, используя локальный Rootfs</string>
   <string name="workspace_detail_tool_approval">Подтверждение инструментов</string>
-  <string name="workspace_detail_tool_approval_desc">Если включено, перед вызовом этого инструмента ИИ требуется подтверждение пользователя.</string>
+  <string name="workspace_detail_tool_approval_desc">Если включено, перед вызовом инструмента ИИ запросит подтверждение. Автоматическое ожидание одобренной команды не требует повторного подтверждения</string>
   <string name="workspace_detail_tool_list_files">Список файлов</string>
   <string name="workspace_detail_tool_read_file">Читать файл</string>
   <string name="workspace_detail_tool_write_file">Записать файл</string>
@@ -1166,6 +1166,8 @@
   <string name="workspace_detail_tool_delete_file">Удалить файл</string>
   <string name="workspace_detail_tool_move_file">Переместить файл</string>
   <string name="workspace_detail_tool_shell">Выполнить команду</string>
+  <string name="workspace_detail_tool_shell_wait">Ожидать вывод команды</string>
+  <string name="workspace_detail_tool_shell_write">Взаимодействовать с командой</string>
   <string name="workspace_detail_install_rootfs_desc">Загрузит tar.gz и распакует в каталог Linux %s.</string>
   <string name="workspace_detail_download_url">URL для скачивания tar.gz</string>
   <string name="workspace_detail_area_files">Файлы</string>
