@@ -1413,4 +1413,5 @@
   <string name="chart_mode_table">表格</string>
   <string name="chart_series">數列</string>
   <string name="chart_series_name">數列 %1$d</string>
+  <string name="chat_page_temporary_chat_hint">臨時對話不會顯示在歷史記錄中，離開後將被刪除。</string>
 </resources>
