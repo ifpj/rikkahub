@@ -182,11 +182,7 @@ fun ChatInput(
         bottomStart = themeShape.bottomStart,
     )
     val modelListState = rememberModelListState(
-        modelId = if (assistant.allowConversationModel && conversation?.chatModelId != null) {
-            conversation.chatModelId
-        } else {
-            assistant.chatModelId ?: settings.chatModelId
-        },
+        modelId = settings.getCurrentChatModel(conversation)?.id ?: settings.chatModelId,
         providers = settings.providers,
         type = ModelType.CHAT,
     )
@@ -332,10 +328,11 @@ fun ChatInput(
                             // Search
                             val enableSearchMsg = stringResource(R.string.web_search_enabled)
                             val disableSearchMsg = stringResource(R.string.web_search_disabled)
-                            val chatModel = settings.getCurrentChatModel()
+                            val chatModel = settings.getCurrentChatModel(conversation)
                             SearchPickerButton(
                                 enableSearch = enableSearch,
                                 settings = settings,
+                                externalSearchEnabled = settings.externalSearchEnabled,
                                 onUpdateSearchMode = { mode ->
                                     onUpdateSearchMode(mode)
                                     val enabled = mode != SearchMode.OFF

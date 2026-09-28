@@ -129,6 +129,7 @@ export function SearchPickerButton({ disabled = false, className, conversation }
   const { error, setError, popoverProps } = usePickerPopover(canUse);
 
   const builtInSearchEnabled = hasBuiltInSearch(currentModel?.tools);
+  const externalSearchEnabled = settings?.externalSearchEnabled !== false;
   const canUseBuiltInSearch =
     supportsBuiltInSearch(currentModel, currentProvider) || builtInSearchEnabled;
   const searchEnabled = currentAssistant?.enableWebSearch ?? false;
@@ -179,6 +180,10 @@ export function SearchPickerButton({ disabled = false, className, conversation }
     toggleSearchEnabledMutation.isPending ||
     toggleBuiltInSearchMutation.isPending ||
     selectServiceMutation.isPending;
+
+  if (!externalSearchEnabled) {
+    return null;
+  }
 
   return (
     <Popover {...popoverProps}>
@@ -286,8 +291,8 @@ export function SearchPickerButton({ disabled = false, className, conversation }
                       key={service.id}
                       type="button"
                       className={cn(
-                          "hover:bg-muted flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition",
-                          selected && "bg-primary/5",
+                        "hover:bg-muted flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition",
+                        selected && "bg-primary/5",
                       )}
                       disabled={disabled || loading}
                       onClick={() => {

@@ -627,7 +627,11 @@ class ChatService(
         } else {
             model.displayName
         }
-        val useExternalWebSearch = shouldUseExternalWebSearch(assistant, model)
+        val useExternalWebSearch = shouldUseExternalWebSearch(
+            assistant,
+            model,
+            settings.externalSearchEnabled,
+        )
 
         val generationResult = runCatching {
 

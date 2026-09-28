@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -150,7 +151,10 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                         vm.updateSettings(
                             settings.copy(searchCommonOptions = options)
                         )
-                    }
+                    },
+                    onUpdateExternalSearchEnabled = { enabled ->
+                        vm.updateSettings(settings.copy(externalSearchEnabled = enabled))
+                    },
                 )
             }
         }
@@ -347,7 +351,8 @@ fun SearchAbilityTagLine(
 @Composable
 private fun CommonOptions(
     settings: me.rerere.rikkahub.data.datastore.Settings,
-    onUpdate: (SearchCommonOptions) -> Unit
+    onUpdate: (SearchCommonOptions) -> Unit,
+    onUpdateExternalSearchEnabled: (Boolean) -> Unit,
 ) {
     var commonOptions by remember(settings.searchCommonOptions) {
         mutableStateOf(settings.searchCommonOptions)
@@ -366,6 +371,17 @@ private fun CommonOptions(
             Text(
                 text = stringResource(R.string.setting_page_search_common_options),
                 style = MaterialTheme.typography.titleMedium
+            )
+
+            FormItem(
+                label = { Text(stringResource(R.string.setting_page_search_external_enabled)) },
+                description = { Text(stringResource(R.string.setting_page_search_external_enabled_desc)) },
+                tail = {
+                    Switch(
+                        checked = settings.externalSearchEnabled,
+                        onCheckedChange = onUpdateExternalSearchEnabled,
+                    )
+                },
             )
 
             FormItem(

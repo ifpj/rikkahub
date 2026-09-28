@@ -96,4 +96,12 @@ class ChatServiceTest {
 
         assertTrue(shouldUseExternalWebSearch(assistant, model))
     }
+
+    @Test
+    fun `global external search switch suppresses assistant search`() {
+        val assistant = Assistant(enableWebSearch = true)
+        val model = Model()
+
+        assertFalse(shouldUseExternalWebSearch(assistant, model, externalSearchEnabled = false))
+    }
 }

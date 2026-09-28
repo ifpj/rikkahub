@@ -437,7 +437,7 @@ private fun ChatPageContent(
                     enableSearch = enableWebSearch,
                     onUpdateSearchMode = { mode ->
                         val current = setting.getCurrentAssistant()
-                        val model = setting.getCurrentChatModel()
+                        val model = setting.getCurrentChatModel(conversation)
                         vm.updateSettings(
                             setting.copy(
                                 assistants = setting.assistants.map { assistant ->
