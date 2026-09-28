@@ -9,9 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
@@ -20,7 +18,6 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SliderState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
@@ -43,7 +40,6 @@ import androidx.graphics.shapes.RoundedPolygon
 import kotlinx.coroutines.flow.drop
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Idea
 import me.rerere.hugeicons.stroke.Idea01
 import me.rerere.rikkahub.R
@@ -91,62 +87,6 @@ fun ReasoningButton(
                 Icon(reasoningLevel.icon(), null)
             }
             if (!onlyIcon) Text(stringResource(R.string.setting_provider_page_reasoning))
-        }
-    }
-}
-
-@Composable
-fun ReasoningSettingRow(
-    modifier: Modifier = Modifier,
-    reasoningLevel: ReasoningLevel,
-    onUpdateReasoningLevel: (ReasoningLevel) -> Unit,
-) {
-    var showPicker by remember { mutableStateOf(false) }
-
-    if (showPicker) {
-        ReasoningPicker(
-            reasoningLevel = reasoningLevel,
-            onDismissRequest = { showPicker = false },
-            onUpdateReasoningLevel = onUpdateReasoningLevel,
-        )
-    }
-
-    Surface(
-        onClick = { showPicker = true },
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box(
-                modifier = Modifier.size(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                ReasoningIcon(reasoningLevel)
-            }
-            Text(
-                text = stringResource(R.string.setting_provider_page_reasoning),
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = reasoningLevel.label(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Icon(
-                imageVector = HugeIcons.ArrowRight01,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
         }
     }
 }
