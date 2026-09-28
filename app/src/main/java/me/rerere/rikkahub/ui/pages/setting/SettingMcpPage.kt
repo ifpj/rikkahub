@@ -43,10 +43,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SecondaryTabRow
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SheetValue
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -452,7 +449,7 @@ private fun McpServerItem(
                 ) {
                     Tag(type = TagType.SUCCESS) {
                         when (item) {
-                            is McpServerConfig.SseTransportServer -> Text("SSE")
+                            is McpServerConfig.SseTransportServer -> Text("SSE (unsupported)")
                             is McpServerConfig.StreamableHTTPServer -> Text("Streamable HTTP")
                         }
                     }
@@ -804,61 +801,21 @@ private fun McpCommonOptionsConfigure(
 
         HorizontalDivider()
 
-        // 传输类型选择
-        FormItem(
-            label = {
-                Text(stringResource(R.string.setting_mcp_page_transport_type))
-            },
-            description = {
-                Text(stringResource(R.string.setting_mcp_page_transport_type_desc))
-            }
-        ) {
-            val transportTypes = listOf(
-                "Streamable HTTP",
-                "SSE"
-            )
-            val currentTypeIndex = when (config) {
-                is McpServerConfig.StreamableHTTPServer -> 0
-                is McpServerConfig.SseTransportServer -> 1
-            }
-
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                transportTypes.forEachIndexed { index, type ->
-                    SegmentedButton(
-                        shape = SegmentedButtonDefaults.itemShape(index, transportTypes.size),
-                        onClick = {
-                            if (index != currentTypeIndex) {
-                                val newConfig = when (index) {
-                                    0 -> McpServerConfig.StreamableHTTPServer(
-                                        id = config.id,
-                                        commonOptions = config.commonOptions,
-                                        url = when (config) {
-                                            is McpServerConfig.SseTransportServer -> config.url
-                                            is McpServerConfig.StreamableHTTPServer -> config.url
-                                        }
-                                    )
-
-                                    1 -> McpServerConfig.SseTransportServer(
-                                        id = config.id,
-                                        commonOptions = config.commonOptions,
-                                        url = when (config) {
-                                            is McpServerConfig.SseTransportServer -> config.url
-                                            is McpServerConfig.StreamableHTTPServer -> config.url
-                                        }
-                                    )
-
-                                    else -> config
-                                }
-                                update(newConfig)
-                            }
-                        },
-                        selected = index == currentTypeIndex
-                    ) {
-                        Text(type)
-                    }
+        if (config is McpServerConfig.SseTransportServer) {
+            FormItem(label = { Text("Legacy SSE is unsupported") }) {
+                Button(onClick = {
+                    update(McpServerConfig.StreamableHTTPServer(
+                        id = config.id,
+                        commonOptions = config.commonOptions,
+                        url = config.url,
+                    ))
+                }) {
+                    Text("Convert to Streamable HTTP (check the endpoint URL)")
                 }
+            }
+        } else {
+            FormItem(label = { Text(stringResource(R.string.setting_mcp_page_transport_type)) }) {
+                Text("Streamable HTTP")
             }
         }
 
@@ -1247,7 +1204,7 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
             tools = tools,
         )
         when (type) {
-            "sse" -> McpServerConfig.SseTransportServer(commonOptions = commonOptions, url = url)
+            "sse" -> null
             else -> McpServerConfig.StreamableHTTPServer(commonOptions = commonOptions, url = url)
         }
     }

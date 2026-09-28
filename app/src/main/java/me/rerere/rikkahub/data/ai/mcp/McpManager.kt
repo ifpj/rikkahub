@@ -2,22 +2,17 @@ package me.rerere.rikkahub.data.ai.mcp
 
 import android.content.Context
 import androidx.core.net.toUri
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.plugins.sse.SSE
-import io.ktor.serialization.kotlinx.json.json
-import io.modelcontextprotocol.kotlin.sdk.client.Client
-import io.modelcontextprotocol.kotlin.sdk.types.ImageContent
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.oauth.CustomTabsOAuthAuthorizationLauncher
 import me.rerere.oauth.OAuthHttpClient
@@ -27,14 +22,11 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.files.saveUploadFromBytes
-import me.rerere.rikkahub.utils.JsonInstant
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import kotlin.io.encoding.Base64
 import kotlin.uuid.Uuid
 
-private const val METASO_MCP_HOST = "metaso.cn"
-private const val METASO_MCP_PATH = "/api/mcp"
 
 /**
  * MCP 子系统的公共入口。
@@ -53,38 +45,7 @@ class McpManager(
         .writeTimeout(120, TimeUnit.SECONDS)
         .followSslRedirects(true)
         .followRedirects(true)
-        .addInterceptor { chain ->
-            val request = chain.request()
-            val response = chain.proceed(request)
-            val isMetasoMcpRequest = request.url.scheme == "https" &&
-                request.url.host.equals(METASO_MCP_HOST, ignoreCase = true) &&
-                request.url.encodedPath == METASO_MCP_PATH
-            val hasIncorrectEmptyResponseContentType = response.code == 204 &&
-                response.header("Content-Type")?.startsWith("text/html", ignoreCase = true) == true
-
-            if (isMetasoMcpRequest && hasIncorrectEmptyResponseContentType) {
-                // Metaso returns an empty initialized response with an HTML content type.
-                response.newBuilder()
-                    .removeHeader("Content-Type")
-                    .build()
-            } else {
-                response
-            }
-        }
         .build()
-
-    private val httpClient = HttpClient(OkHttp) {
-        engine {
-            preconfigured = okHttpClient
-        }
-        install(ContentNegotiation) {
-            json(Json {
-                prettyPrint = true
-                isLenient = true
-            })
-        }
-        install(SSE)
-    }
 
     private val statusStore = McpStatusStore()
     private val oauthCallbackServer = OAuthLoopbackCallbackServer(
@@ -103,7 +64,6 @@ class McpManager(
     private val sessionRegistry = McpSessionRegistry(
         settingsStore = settingsStore,
         appScope = appScope,
-        httpClient = httpClient,
         oauthCoordinator = oauthCoordinator,
         statusStore = statusStore,
     )
@@ -120,7 +80,7 @@ class McpManager(
     val syncingStatus: StateFlow<Map<Uuid, McpStatus>>
         get() = statusStore.status
 
-    fun getClient(config: McpServerConfig): Client? = sessionRegistry.getClient(config.id)
+    internal fun getClient(config: McpServerConfig): RmcpClient? = sessionRegistry.getClient(config.id)
 
     fun getStatus(config: McpServerConfig): Flow<McpStatus> = sessionRegistry.getStatus(config.id)
 
@@ -128,7 +88,10 @@ class McpManager(
         val settings = settingsStore.settingsFlow.value
         val assistant = settings.getCurrentAssistant()
         return settings.mcpServers
-            .filter { it.commonOptions.enable && it.id in assistant.mcpServers }
+            .filter {
+                it is McpServerConfig.StreamableHTTPServer &&
+                    it.commonOptions.enable && it.id in assistant.mcpServers
+            }
             .flatMap { server ->
                 server.commonOptions.tools
                     .filter { tool -> tool.enable }
@@ -144,11 +107,15 @@ class McpManager(
         } catch (e: McpClientUnavailableException) {
             return listOf(UIMessagePart.Text("Failed to execute MCP tool: ${e.message ?: e.javaClass.name}"))
         }
-        return result.content.map { content ->
-            when (content) {
-                is TextContent -> UIMessagePart.Text(content.text)
-                is ImageContent -> convertImageContentToFilePart(content)
-                else -> UIMessagePart.Text(JsonInstant.encodeToString(content))
+        return result["content"]?.jsonArray.orEmpty().map { content ->
+            val obj = content.jsonObject
+            when (obj["type"]?.jsonPrimitive?.contentOrNull) {
+                "text" -> UIMessagePart.Text(obj["text"]?.jsonPrimitive?.contentOrNull.orEmpty())
+                "image" -> convertImageContentToFilePart(
+                    data = obj["data"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    mimeType = obj["mimeType"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream",
+                )
+                else -> UIMessagePart.Text(content.toString())
             }
         }
     }
@@ -176,14 +143,14 @@ class McpManager(
         sessionRegistry.addClient(freshConfig)
     }
 
-    private suspend fun convertImageContentToFilePart(image: ImageContent): UIMessagePart.Image {
-        val bytes = Base64.decode(image.data)
+    private suspend fun convertImageContentToFilePart(data: String, mimeType: String): UIMessagePart.Image {
+        val bytes = Base64.decode(data)
         val extension = android.webkit.MimeTypeMap.getSingleton()
-            .getExtensionFromMimeType(image.mimeType) ?: "bin"
+            .getExtensionFromMimeType(mimeType) ?: "bin"
         val entity = filesManager.saveUploadFromBytes(
             bytes = bytes,
             displayName = "mcp_image.$extension",
-            mimeType = image.mimeType,
+            mimeType = mimeType,
         )
         return UIMessagePart.Image(url = filesManager.getFile(entity).toUri().toString())
     }
