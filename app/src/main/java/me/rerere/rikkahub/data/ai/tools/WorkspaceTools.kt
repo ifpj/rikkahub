@@ -29,6 +29,7 @@ private const val SHELL_TIMEOUT_MAX_SECONDS = 600L
 private const val SHELL_YIELD_MAX_MILLIS = 30_000L
 private const val SHELL_INITIAL_YIELD_MILLIS = 1_000L
 private const val SHELL_AUTO_WAIT_MILLIS = 1_000L
+private const val SHELL_YIELD_TIME_KEY = "yield_time_ms"
 private const val SHELL_MODEL_OUTPUT_MAX_CHARS = 16 * 1024
 private const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
 
@@ -260,7 +261,7 @@ private fun createShellTool(
                         "Command timeout in seconds. Defaults to 30, max $SHELL_TIMEOUT_MAX_SECONDS."
                     )
                 })
-                put("yield_time_ms", buildJsonObject {
+                put(SHELL_YIELD_TIME_KEY, buildJsonObject {
                     put("type", "integer")
                     put(
                         "description",
@@ -298,7 +299,7 @@ private fun createShellTool(
             ?.coerceIn(1L, SHELL_TIMEOUT_MAX_SECONDS)
             ?.times(1_000L)
             ?: WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS
-        val yieldMillis = params.string("yield-time_ms")?.toLongOrNull()
+        val yieldMillis = params.string(SHELL_YIELD_TIME_KEY)?.toLongOrNull()
             ?.coerceIn(0L, SHELL_YIELD_MAX_MILLIS)
             ?: SHELL_INITIAL_YIELD_MILLIS
         val terminalRows = params.string("rows")?.toIntOrNull()?.coerceIn(1, 500) ?: DEFAULT_TERMINAL_ROWS
@@ -335,7 +336,7 @@ private fun createShellWaitTool(
                     put("type", "string")
                     put("description", "Session ID returned by workspace_shell")
                 })
-                put("yield_time_ms", buildJsonObject {
+                put(SHELL_YIELD_TIME_KEY, buildJsonObject {
                     put("type", "integer")
                     put(
                         "description",
@@ -351,7 +352,7 @@ private fun createShellWaitTool(
     execute = {
         val params = it.jsonObject
         val sessionId = params.string("session_id") ?: error("session_id is required")
-        val yieldMillis = params.string("yield-time_ms")?.toLongOrNull()
+        val yieldMillis = params.string(SHELL_YIELD_TIME_KEY)?.toLongOrNull()
             ?.coerceIn(0L, SHELL_YIELD_MAX_MILLIS)
             ?: SHELL_AUTO_WAIT_MILLIS
         val result = workspaceRepository.waitCommandSession(workspaceId, sessionId, yieldMillis)
