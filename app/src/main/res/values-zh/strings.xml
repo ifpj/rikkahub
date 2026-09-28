@@ -1416,4 +1416,6 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="chart_series">系列</string>
   <string name="chart_series_name">系列 %1$d</string>
   <string name="chat_page_temporary_chat_hint">临时对话不会显示在历史记录中，离开后将被删除。</string>
+  <string name="setting_page_web_server_mdns_enabled">启用 mDNS</string>
+  <string name="setting_page_web_server_mdns_enabled_desc">允许通过 rikkahub.local 访问；关闭后仍可通过局域网 IP 访问，且停止服务更快。</string>
 </resources>

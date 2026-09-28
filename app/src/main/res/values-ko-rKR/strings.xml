@@ -1412,4 +1412,6 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="chart_series">계열</string>
   <string name="chart_series_name">계열 %1$d</string>
   <string name="chat_page_temporary_chat_hint">임시 채팅은 기록에 표시되지 않으며 나가면 삭제됩니다.</string>
+  <string name="setting_page_web_server_mdns_enabled">mDNS 사용</string>
+  <string name="setting_page_web_server_mdns_enabled_desc">rikkahub.local로 접속할 수 있습니다. 꺼도 LAN IP로 접속할 수 있으며 서버가 더 빨리 종료됩니다.</string>
 </resources>

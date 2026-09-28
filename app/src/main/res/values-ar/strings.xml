@@ -1402,4 +1402,6 @@
   <string name="chart_series">سلسلة</string>
   <string name="chart_series_name">سلسلة %1$d</string>
   <string name="chat_page_temporary_chat_hint">لا تظهر المحادثات المؤقتة في السجل وتُحذف عند المغادرة.</string>
+  <string name="setting_page_web_server_mdns_enabled">تفعيل mDNS</string>
+  <string name="setting_page_web_server_mdns_enabled_desc">يسمح بالوصول عبر rikkahub.local. عند تعطيله، يظل الوصول عبر عنوان IP للشبكة المحلية متاحًا ويصبح إيقاف الخادم أسرع.</string>
 </resources>

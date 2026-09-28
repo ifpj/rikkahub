@@ -1412,4 +1412,6 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="chart_series">系列</string>
   <string name="chart_series_name">系列 %1$d</string>
   <string name="chat_page_temporary_chat_hint">一時チャットは履歴に表示されず、退出すると削除されます。</string>
+  <string name="setting_page_web_server_mdns_enabled">mDNS を有効にする</string>
+  <string name="setting_page_web_server_mdns_enabled_desc">rikkahub.local からのアクセスを許可します。オフにしても LAN の IP アドレスからアクセスでき、停止が速くなります。</string>
 </resources>

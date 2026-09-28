@@ -178,6 +178,7 @@ class SettingsStore(
         val WEB_SERVER_JWT_ENABLED = booleanPreferencesKey("web_server_jwt_enabled")
         val WEB_SERVER_ACCESS_PASSWORD = stringPreferencesKey("web_server_access_password")
         val WEB_SERVER_LOCALHOST_ONLY = booleanPreferencesKey("web_server_localhost_only")
+        val WEB_SERVER_MDNS_ENABLED = booleanPreferencesKey("web_server_mdns_enabled")
         val WEB_SERVER_TEMPORARY_START = booleanPreferencesKey("web_server_temporary_start")
 
         // 提示词注入
@@ -267,6 +268,7 @@ class SettingsStore(
                 preferences[WEB_SERVER_JWT_ENABLED] = settings.webServerJwtEnabled
                 preferences[WEB_SERVER_ACCESS_PASSWORD] = settings.webServerAccessPassword
                 preferences[WEB_SERVER_LOCALHOST_ONLY] = settings.webServerLocalhostOnly
+                preferences[WEB_SERVER_MDNS_ENABLED] = settings.webServerMdnsEnabled
                 preferences[WEB_SERVER_TEMPORARY_START] = settings.webServerTemporaryStart
                 preferences[BACKUP_REMINDER_CONFIG] = JsonInstant.encodeToString(settings.backupReminderConfig)
             }
@@ -369,6 +371,7 @@ class SettingsStore(
                 webServerJwtEnabled = preferences[WEB_SERVER_JWT_ENABLED] == true,
                 webServerAccessPassword = preferences[WEB_SERVER_ACCESS_PASSWORD] ?: "",
                 webServerLocalhostOnly = preferences[WEB_SERVER_LOCALHOST_ONLY] == true,
+                webServerMdnsEnabled = preferences[WEB_SERVER_MDNS_ENABLED] != false,
                 webServerTemporaryStart = preferences[WEB_SERVER_TEMPORARY_START] == true,
                 backupReminderConfig = preferences[BACKUP_REMINDER_CONFIG]?.let {
                     JsonInstant.decodeFromString(it)
@@ -677,6 +680,7 @@ data class Settings(
     val webServerJwtEnabled: Boolean = false,
     val webServerAccessPassword: String = "",
     val webServerLocalhostOnly: Boolean = false,
+    val webServerMdnsEnabled: Boolean = true,
     val webServerTemporaryStart: Boolean = false,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
 ) {
