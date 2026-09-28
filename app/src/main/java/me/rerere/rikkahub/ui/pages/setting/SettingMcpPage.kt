@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -86,6 +87,7 @@ import me.rerere.rikkahub.data.ai.mcp.McpStatus
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.ItemAction
 import me.rerere.rikkahub.ui.components.ui.ItemActionMenu
+import me.rerere.rikkahub.ui.components.ui.longPressReorder
 import me.rerere.rikkahub.ui.components.ui.Tag
 import me.rerere.rikkahub.ui.components.ui.TagType
 import me.rerere.rikkahub.ui.context.LocalNavController
@@ -97,6 +99,8 @@ import me.rerere.rikkahub.utils.writeClipboardText
 import me.rerere.ui.components.RikkaConfirmDialog
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @Composable
 fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
@@ -173,6 +177,17 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
         val mcpManager = koinInject<McpManager>()
         val status by mcpManager.syncingStatus.collectAsStateWithLifecycle()
         val scope = rememberCoroutineScope()
+        val lazyListState = rememberLazyListState()
+        val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
+            val fromIndex = from.index
+            val toIndex = to.index
+            if (fromIndex in mcpConfigs.indices && toIndex in mcpConfigs.indices) {
+                val reordered = mcpConfigs.toMutableList().apply {
+                    add(toIndex, removeAt(fromIndex))
+                }
+                vm.updateSettings(settings.copy(mcpServers = reordered))
+            }
+        }
         val state = rememberPullToRefreshState()
         val loading = status.values.any { it == McpStatus.Connecting || it is McpStatus.Reconnecting }
         val layoutDirection = LocalLayoutDirection.current
@@ -195,23 +210,31 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                     top = innerPadding.calculateTopPadding() + 16.dp,
                     end = innerPadding.calculateEndPadding(layoutDirection) + 16.dp,
                     bottom = innerPadding.calculateBottomPadding() + 16.dp,
-                )
+                ),
+                state = lazyListState,
             ) {
                 items(mcpConfigs, key = { it.id }) { mcpConfig ->
-                    McpServerItem(
-                        item = mcpConfig,
-                        onEdit = {
-                            navController.navigate(Screen.SettingMcpDetail(serverId = mcpConfig.id.toString()))
-                        },
-                        onDelete = {
-                            vm.updateSettings { latest ->
-                                latest.copy(
-                                    mcpServers = latest.mcpServers.filter { it.id != mcpConfig.id }
-                                )
-                            }
-                        },
-                        modifier = Modifier.animateItem()
-                    )
+                    ReorderableItem(
+                        state = reorderableState,
+                        key = mcpConfig.id,
+                    ) { isDragging ->
+                        McpServerItem(
+                            item = mcpConfig,
+                            onEdit = {
+                                navController.navigate(Screen.SettingMcpDetail(serverId = mcpConfig.id.toString()))
+                            },
+                            onDelete = {
+                                vm.updateSettings { latest ->
+                                    latest.copy(
+                                        mcpServers = latest.mcpServers.filter { it.id != mcpConfig.id }
+                                    )
+                                }
+                            },
+                            modifier = Modifier
+                                .animateItem()
+                                .then(longPressReorder(isDragging)),
+                        )
+                    }
                 }
             }
 
