@@ -33,6 +33,10 @@ RikkaHub 的 MCP 设置中选择 **Streamable HTTP**，填入上面的地址，�
 Authorization: Bearer 替换为随机长字符串
 ```
 
+服务端同时接受 `rmcp` 的无状态 `2026-07-28` 请求和旧版有状态连接；客户端不需要添加 Shell 专用请求头。`exec_command` 每次创建独立的 tmux 会话，并返回随机的 `session_id`。后续 `write_stdin` 必须带上该 ID，服务端不会根据 MCP 连接自动选择会话。该 ID 与 tmux 会话名无关，应当像访问凭据一样保管。
+
+这里的隔离是**会话路由**，不是不同客户端之间的安全沙箱：持有同一个服务端 Token 和 `session_id` 的调用方可以续接同一 Shell；有 Shell 执行权限的调用方本身也能访问同一个 Termux 用户环境。需要安全隔离时，应使用不同的 Termux 用户/实例或独立服务，而不是共享此端点。
+
 ## 构建
 
 在桌面环境验证：
