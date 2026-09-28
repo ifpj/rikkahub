@@ -1160,7 +1160,7 @@
   <string name="workspace_detail_enable_shell">啟用 Shell</string>
   <string name="workspace_detail_enable_shell_desc">允許此工作區使用本地 Rootfs 來執行終端環境</string>
   <string name="workspace_detail_tool_approval">工具核准</string>
-  <string name="workspace_detail_tool_approval_desc">啟用後，AI 調用此工具前需要用戶確認。</string>
+  <string name="workspace_detail_tool_approval_desc">啟用後，AI 調用此工具前需要確認；已核准命令的自動等待不會重複確認</string>
   <string name="workspace_detail_tool_list_files">列出檔案</string>
   <string name="workspace_detail_tool_read_file">讀取檔案</string>
   <string name="workspace_detail_tool_write_file">寫入檔案</string>
@@ -1168,6 +1168,8 @@
   <string name="workspace_detail_tool_delete_file">刪除檔案</string>
   <string name="workspace_detail_tool_move_file">移動檔案</string>
   <string name="workspace_detail_tool_shell">執行命令</string>
+  <string name="workspace_detail_tool_shell_wait">等待命令輸出</string>
+  <string name="workspace_detail_tool_shell_write">與命令互動</string>
   <string name="workspace_detail_install_rootfs_desc">將下載 tar.gz 並解壓縮到 %s 的 linux 目錄。</string>
   <string name="workspace_detail_download_url">tar.gz 下載網址</string>
   <string name="workspace_detail_area_files">檔案</string>

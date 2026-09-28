@@ -1158,7 +1158,7 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="workspace_detail_enable_shell">셸 활성화</string>
   <string name="workspace_detail_enable_shell_desc">이 워크스페이스에서 로컬 Rootfs를 사용하여 터미널 환경을 실행할 수 있도록 허용합니다.</string>
   <string name="workspace_detail_tool_approval">도구 승인</string>
-  <string name="workspace_detail_tool_approval_desc">활성화되면 AI가 이 도구를 호출하기 전에 사용자 확인이 필요합니다.</string>
+  <string name="workspace_detail_tool_approval_desc">활성화하면 AI가 이 도구를 호출하기 전에 확인이 필요합니다. 승인된 셸 명령의 자동 대기는 다시 확인하지 않습니다</string>
   <string name="workspace_detail_tool_list_files">파일 목록</string>
   <string name="workspace_detail_tool_read_file">파일 읽기</string>
   <string name="workspace_detail_tool_write_file">파일 쓰기</string>
@@ -1166,6 +1166,8 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="workspace_detail_tool_delete_file">파일 삭제</string>
   <string name="workspace_detail_tool_move_file">파일 이동</string>
   <string name="workspace_detail_tool_shell">명령 실행</string>
+  <string name="workspace_detail_tool_shell_wait">명령 출력 대기</string>
+  <string name="workspace_detail_tool_shell_write">명령과 상호 작용</string>
   <string name="workspace_detail_install_rootfs_desc">%s의 linux 디렉터리에 tar.gz를 다운로드하여 압축을 풉니다.</string>
   <string name="workspace_detail_download_url">tar.gz 다운로드 URL</string>
   <string name="workspace_detail_area_files">파일</string>

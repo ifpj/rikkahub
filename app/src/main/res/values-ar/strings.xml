@@ -1352,13 +1352,15 @@
   <string name="workspace_detail_tab_files">الملفات</string>
   <string name="workspace_detail_title">تفاصيل مساحة العمل</string>
   <string name="workspace_detail_tool_approval">الموافقة على الأداة</string>
-  <string name="workspace_detail_tool_approval_desc">عند التفعيل، يلزم تأكيد المستخدم قبل أن يستدعي الذكاء الاصطناعي هذه الأداة</string>
+  <string name="workspace_detail_tool_approval_desc">عند التفعيل، يلزم التأكيد قبل أن يستدعي الذكاء الاصطناعي هذه الأداة. لا يتطلب الانتظار التلقائي لأمر تمت الموافقة عليه تأكيدًا آخر</string>
   <string name="workspace_detail_tool_delete_file">حذف ملف</string>
   <string name="workspace_detail_tool_edit_file">تعديل الملف</string>
   <string name="workspace_detail_tool_list_files">عرض الملفات</string>
   <string name="workspace_detail_tool_move_file">نقل ملف</string>
   <string name="workspace_detail_tool_read_file">قراءة الملف</string>
   <string name="workspace_detail_tool_shell">تنفيذ أمر</string>
+  <string name="workspace_detail_tool_shell_wait">انتظار خرج الأمر</string>
+  <string name="workspace_detail_tool_shell_write">التفاعل مع الأمر</string>
   <string name="workspace_detail_tool_write_file">كتابة الملف</string>
   <string name="workspace_detail_will_delete">سيتم حذف %s.</string>
   <string name="workspace_detail_workspace_info">مساحة العمل</string>
