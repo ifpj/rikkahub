@@ -322,6 +322,7 @@ private fun McpServerItem(
 ) {
     val mcpManager = koinInject<McpManager>()
     val status by mcpManager.getStatus(item).collectAsStateWithLifecycle(McpStatus.Idle)
+    val protocolVersion = if (status == McpStatus.Connected) mcpManager.getProtocolVersion(item) else null
     val scope = rememberCoroutineScope()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var errorDetail by remember { mutableStateOf<McpStatus.Error?>(null) }
@@ -431,6 +432,9 @@ private fun McpServerItem(
                     Text(
                         text = item.commonOptions.name,
                         style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     val dotColor =
                         if (item.commonOptions.enable) MaterialTheme.extendColors.green6 else MaterialTheme.extendColors.red6
@@ -443,6 +447,14 @@ private fun McpServerItem(
                                 )
                             }
                     )
+                    if (protocolVersion != null) {
+                        Text(
+                            text = "MCP $protocolVersion",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
