@@ -107,6 +107,7 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val mcpConfigs = settings.mcpServers
     val navController = LocalNavController.current
+    var orderedMcpConfigs by remember(mcpConfigs) { mutableStateOf(mcpConfigs) }
     var showImportDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -130,7 +131,7 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                     }
                     IconButton(
                         onClick = {
-                            val duplicateNames = mcpConfigs
+                            val duplicateNames = orderedMcpConfigs
                                 .map { it.commonOptions.name }
                                 .filter { it.isNotBlank() }
                                 .groupingBy { it }
@@ -143,7 +144,7 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                                     type = ToastType.Error,
                                 )
                             } else {
-                                val json = buildMcpServersJson(mcpConfigs)
+                                val json = buildMcpServersJson(orderedMcpConfigs)
                                 context.writeClipboardText(json)
                                 toaster.show(
                                     context.getString(R.string.setting_mcp_page_export_copied),
@@ -181,11 +182,10 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
         val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
             val fromIndex = from.index
             val toIndex = to.index
-            if (fromIndex in mcpConfigs.indices && toIndex in mcpConfigs.indices) {
-                val reordered = mcpConfigs.toMutableList().apply {
+            if (fromIndex in orderedMcpConfigs.indices && toIndex in orderedMcpConfigs.indices) {
+                orderedMcpConfigs = orderedMcpConfigs.toMutableList().apply {
                     add(toIndex, removeAt(fromIndex))
                 }
-                vm.updateSettings(settings.copy(mcpServers = reordered))
             }
         }
         val state = rememberPullToRefreshState()
@@ -213,7 +213,7 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                 ),
                 state = lazyListState,
             ) {
-                items(mcpConfigs, key = { it.id }) { mcpConfig ->
+                items(orderedMcpConfigs, key = { it.id }) { mcpConfig ->
                     ReorderableItem(
                         state = reorderableState,
                         key = mcpConfig.id,
@@ -226,19 +226,26 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                             onDelete = {
                                 vm.updateSettings { latest ->
                                     latest.copy(
-                                        mcpServers = latest.mcpServers.filter { it.id != mcpConfig.id }
+                                        mcpServers = orderedMcpConfigs.filter { it.id != mcpConfig.id }
                                     )
                                 }
                             },
                             modifier = Modifier
-                                .then(if (isDragging) Modifier else Modifier.animateItem())
-                                .then(longPressReorder(isDragging)),
+                                .animateItem()
+                                .then(
+                                    longPressReorder(
+                                        isDragging = isDragging,
+                                        onDragStopped = {
+                                            vm.updateSettings { it.copy(mcpServers = orderedMcpConfigs) }
+                                        },
+                                    )
+                                ),
                         )
                     }
                 }
             }
 
-            if (mcpConfigs.isEmpty()) {
+            if (orderedMcpConfigs.isEmpty()) {
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -257,9 +264,9 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
         McpImportModal(
             onDismiss = { showImportDialog = false },
             onImport = { newConfigs ->
-                val existingIds = mcpConfigs.map { it.commonOptions.name }.toSet()
+                val existingIds = orderedMcpConfigs.map { it.commonOptions.name }.toSet()
                 val toAdd = newConfigs.filter { it.commonOptions.name.isNotBlank() && it.commonOptions.name !in existingIds }
-                vm.updateSettings { it.copy(mcpServers = it.mcpServers + toAdd) }
+                vm.updateSettings { it.copy(mcpServers = orderedMcpConfigs + toAdd) }
                 showImportDialog = false
             }
         )

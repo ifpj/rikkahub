@@ -27,6 +27,7 @@ private const val DraggingScale = 0.95f
 fun ReorderableCollectionItemScope.longPressReorder(
     isDragging: Boolean,
     enabled: Boolean = true,
+    onDragStopped: (() -> Unit)? = null,
 ): Modifier {
     val haptic = LocalHapticFeedback.current
     return Modifier
@@ -34,7 +35,10 @@ fun ReorderableCollectionItemScope.longPressReorder(
         .longPressDraggableHandle(
             enabled = enabled,
             onDragStarted = { haptic.dragStarted() },
-            onDragStopped = { haptic.dragStopped() },
+            onDragStopped = {
+                haptic.dragStopped()
+                onDragStopped?.invoke()
+            },
         )
 }
 
