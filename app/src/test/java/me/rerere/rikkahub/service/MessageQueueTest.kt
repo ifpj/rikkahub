@@ -178,4 +178,18 @@ class MessageQueueTest {
         assertNull(first.takeNext())
         assertEquals(text("second"), second.takeNext()!!.parts)
     }
+
+    @Test
+    fun `discarding a temporary chat clears queued input and resolves observers`() = runBlocking {
+        val queue = MessageQueue()
+        val reply = CompletableDeferred<String?>()
+        queue.enqueue(text("temporary"), reply = reply)
+
+        val discarded = queue.discard()
+
+        assertEquals(1, discarded.size)
+        assertTrue(queue.state.value.messages.isEmpty())
+        assertTrue(queue.state.value.paused)
+        assertNull(reply.await())
+    }
 }
