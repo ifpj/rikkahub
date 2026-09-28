@@ -29,8 +29,12 @@ private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
 // 搜索结果的体积由用户设置的结果数决定，且结果列表 UI 与引用跳转都依赖完整的 JSON 结构，不参与截断
 private val TOOLS_WITHOUT_OUTPUT_TRUNCATION = setOf("search_web")
 
-internal fun shouldUseExternalWebSearch(assistant: Assistant, model: Model): Boolean {
-    return assistant.enableWebSearch && BuiltInTools.Search !in model.tools
+internal fun shouldUseExternalWebSearch(
+    assistant: Assistant,
+    model: Model,
+    externalSearchEnabled: Boolean = true,
+): Boolean {
+    return externalSearchEnabled && assistant.enableWebSearch && BuiltInTools.Search !in model.tools
 }
 
 class InvalidMcpServerNamesException(val names: List<String>) :
@@ -63,7 +67,7 @@ class ChatToolFactory(
             if (assistant.enableMemory) {
                 addAll(buildMemoryTools(memoryRepository, assistant.memoryId))
             }
-            if (shouldUseExternalWebSearch(assistant, model)) {
+            if (shouldUseExternalWebSearch(assistant, model, settings.externalSearchEnabled)) {
                 addAll(createSearchTools(settings))
             }
             addAll(localTools.getTools(assistant.localTools))

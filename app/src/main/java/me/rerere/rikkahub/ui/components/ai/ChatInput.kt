@@ -299,30 +299,36 @@ fun ChatInput(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .weight(1f, fill = false)
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                // Model Picker
-                                ModelSelectorButton(
-                                    state = modelListState,
-                                    onlyIcon = true,
-                                    modifier = Modifier,
-                                )
+                            // Model Picker
+                            ModelSelectorButton(
+                                state = modelListState,
+                                onlyIcon = true,
+                                modifier = Modifier,
+                            )
 
-                                // Reasoning
-                                if (chatModel?.abilities?.contains(ModelAbility.REASONING) == true) {
-                                    ReasoningButton(
-                                        reasoningLevel = assistant.reasoningLevel,
-                                        onUpdateReasoningLevel = {
-                                            onUpdateAssistant(assistant.copy(reasoningLevel = it))
-                                        },
-                                        onlyIcon = true,
+                            // Search
+                            val enableSearchMsg = stringResource(R.string.web_search_enabled)
+                            val disableSearchMsg = stringResource(R.string.web_search_disabled)
+                            SearchPickerButton(
+                                enableSearch = assistant.enableWebSearch,
+                                settings = settings,
+                                externalSearchEnabled = settings.externalSearchEnabled,
+                                onUpdateSearchMode = { mode ->
+                                    onUpdateSearchMode(mode)
+                                    val enabled = mode != SearchMode.OFF
+                                    toaster.show(
+                                        message = if (enabled) enableSearchMsg else disableSearchMsg,
+                                        duration = 1.seconds,
+                                        type = if (enabled) {
+                                            ToastType.Success
+                                        } else {
+                                            ToastType.Normal
+                                        }
                                     )
-                                }
-                            }
+                                },
+                                onUpdateSearchService = onUpdateSearchService,
+                                model = chatModel,
+                            )
 
                             if (runningBackgroundTasks > 0) {
                                 BackgroundTasksButton(

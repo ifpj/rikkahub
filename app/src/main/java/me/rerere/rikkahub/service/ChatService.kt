@@ -800,7 +800,7 @@ class ChatService(
     // 模型不支持工具调用时，搜索和 MCP 工具都不会生效，提醒一下
     private fun warnIfToolsUnavailable(turn: ChatTurnContext, conversationId: Uuid) {
         if (ModelAbility.TOOL in turn.model.abilities) return
-        if (shouldUseExternalWebSearch(turn.assistant, turn.model) ||
+        if (shouldUseExternalWebSearch(turn.assistant, turn.model, turn.settings.externalSearchEnabled) ||
             mcpManager.getAllAvailableTools(turn.assistant).isNotEmpty()
         ) {
             addError(

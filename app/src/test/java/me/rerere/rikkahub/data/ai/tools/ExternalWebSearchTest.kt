@@ -9,6 +9,11 @@ import org.junit.Test
 
 class ExternalWebSearchTest {
     @Test
+    fun `global switch suppresses enabled external web search`() {
+        assertFalse(shouldUseExternalWebSearch(Assistant(enableWebSearch = true), Model(), false))
+    }
+
+    @Test
     fun `external web search is disabled when assistant preference is disabled`() {
         val assistant = Assistant(enableWebSearch = false)
         val model = Model()

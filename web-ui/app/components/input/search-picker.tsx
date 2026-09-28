@@ -143,6 +143,7 @@ export function SearchPickerButton({
   const builtInSearchEnabled = config
     ? config.builtInSearch === true
     : hasBuiltInSearch(currentModel?.tools);
+  const externalSearchEnabled = settings?.externalSearchEnabled !== false;
   const canUseBuiltInSearch =
     supportsBuiltInSearch(currentModel, currentProvider) || builtInSearchEnabled;
   const searchEnabled = config
@@ -150,6 +151,10 @@ export function SearchPickerButton({
     : (currentAssistant?.enableWebSearch ?? false);
   const currentService = settings?.searchServices?.[settings.searchServiceSelected] ?? null;
   const checked = searchEnabled || builtInSearchEnabled;
+
+  if (!externalSearchEnabled) {
+    return null;
+  }
 
   React.useEffect(() => {
     if (!canUse) {
