@@ -1,20 +1,6 @@
 package me.rerere.rikkahub.data.ai.mcp
 
 import android.util.Log
-import io.ktor.client.HttpClient
-import io.ktor.client.request.HttpRequestBuilder
-import io.ktor.util.StringValues
-import io.modelcontextprotocol.kotlin.sdk.client.Client
-import io.modelcontextprotocol.kotlin.sdk.client.SseClientTransport
-import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
-import io.modelcontextprotocol.kotlin.sdk.shared.AbstractTransport
-import io.modelcontextprotocol.kotlin.sdk.shared.RequestOptions
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.Implementation
-import io.modelcontextprotocol.kotlin.sdk.types.Tool
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,11 +20,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
-import me.rerere.ai.core.InputSchema
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 private const val TAG = "McpSessionRegistry"
@@ -52,13 +36,14 @@ private class McpSession(initialConfig: McpServerConfig) {
     var config: McpServerConfig = initialConfig
 
     @Volatile
-    var client: Client? = null
+    var client: RmcpClient? = null
 
     @Volatile
     var connectedConfig: McpServerConfig? = null
 
     val lifecycleMutex = Mutex()
     var reconnectJob: Job? = null
+    var healthJob: Job? = null
     var reconnectAttempt: Int = 0
 }
 
@@ -96,19 +81,21 @@ internal class McpStatusStore {
 internal class McpSessionRegistry(
     private val settingsStore: SettingsStore,
     private val appScope: AppScope,
-    private val httpClient: HttpClient,
     private val oauthCoordinator: McpOAuthCoordinator,
     private val statusStore: McpStatusStore,
 ) {
     private val sessions = ConcurrentHashMap<Uuid, McpSession>()
 
-    fun getClient(configId: Uuid): Client? = sessions[configId]?.client
+    fun getClient(configId: Uuid): RmcpClient? = sessions[configId]?.client
 
     fun getStatus(configId: Uuid): Flow<McpStatus> = statusStore.get(configId)
 
     fun reconcile(configs: List<McpServerConfig>) {
         val activeConfigs = configs
-            .filter { it.commonOptions.enable && it.commonOptions.name.isNotBlank() }
+            .filter {
+                it is McpServerConfig.StreamableHTTPServer &&
+                    it.commonOptions.enable && it.commonOptions.name.isNotBlank()
+            }
             .associateBy { it.id }
 
         (sessions.keys - activeConfigs.keys).forEach { configId ->
@@ -117,6 +104,11 @@ internal class McpSessionRegistry(
             statusStore.remove(configId)
             appScope.launch { closeSession(detached) }
         }
+        configs.filterIsInstance<McpServerConfig.SseTransportServer>()
+            .filter { it.commonOptions.enable }
+            .forEach { legacy ->
+                statusStore.update(legacy.id, McpStatus.Error("Standalone SSE is no longer supported; use Streamable HTTP"))
+            }
 
         activeConfigs.values.forEach { newConfig ->
             val existing = sessions[newConfig.id]
@@ -145,7 +137,7 @@ internal class McpSessionRegistry(
         }
     }
 
-    suspend fun callTool(serverId: Uuid, toolName: String, args: JsonObject): CallToolResult {
+    suspend fun callTool(serverId: Uuid, toolName: String, args: JsonObject): JsonObject {
         val session = sessions[serverId]
             ?: throw McpClientUnavailableException("No MCP session for server $serverId")
         val freshConfig = oauthCoordinator.ensureFreshToken(session.config)
@@ -159,12 +151,7 @@ internal class McpSessionRegistry(
         val config = session.connectedConfig ?: session.config
         Log.i(TAG, "Calling tool $toolName on $serverId (${config.commonOptions.name})")
         return try {
-            sdkClient.callTool(
-                request = CallToolRequest(
-                    params = CallToolRequestParams(name = toolName, arguments = args),
-                ),
-                options = RequestOptions(timeout = 120.seconds),
-            )
+            sdkClient.callTool(toolName, args)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -184,6 +171,10 @@ internal class McpSessionRegistry(
         }
         if (!desiredConfig.commonOptions.enable || desiredConfig.commonOptions.name.isBlank()) {
             removeClient(desiredConfig)
+            return
+        }
+        if (desiredConfig is McpServerConfig.SseTransportServer) {
+            statusStore.update(desiredConfig.id, McpStatus.Error("Standalone SSE is no longer supported"))
             return
         }
 
@@ -274,37 +265,50 @@ internal class McpSessionRegistry(
             }
 
             statusStore.update(config.id, McpStatus.Connecting)
+            session.healthJob?.cancel()
+            session.healthJob = null
             val oldClient = session.client
             session.client = null
             session.connectedConfig = null
             oldClient?.let { closeClient(it, config.commonOptions.name) }
 
-            val sdkClient = createSdkClient(config)
-            val transport = createTransport(config)
-            installTransportCallbacks(config, sdkClient, transport)
-
+            var sdkClient: RmcpClient? = null
             try {
-                sdkClient.connect(transport)
-                val syncedConfig = syncTools(session, sdkClient, config)
+                val connectedClient = RmcpClient.connect(config)
+                sdkClient = connectedClient
+                val syncedConfig = syncTools(session, connectedClient, config)
                 if (sessions[config.id] !== session ||
                     !hasSameConnectionParameters(config, syncedConfig)
                 ) {
-                    closeClient(sdkClient, config.commonOptions.name)
+                    closeClient(connectedClient, config.commonOptions.name)
                     return@withLock ConnectResult.Stale
                 }
 
                 session.config = syncedConfig
                 session.connectedConfig = syncedConfig
-                session.client = sdkClient
+                session.client = connectedClient
                 session.reconnectAttempt = 0
                 statusStore.update(config.id, McpStatus.Connected)
-                Log.i(TAG, "Connected MCP server ${config.id} (${config.commonOptions.name})")
+                session.healthJob = appScope.launch {
+                    while (true) {
+                        delay(2_000)
+                        if (connectedClient.isClosed()) {
+                            requestReconnect(config.id, connectedClient)
+                            break
+                        }
+                    }
+                }
+                Log.i(
+                    TAG,
+                    "Connected MCP server ${config.id} (${config.commonOptions.name}), " +
+                        "protocol ${connectedClient.protocolVersion()}"
+                )
                 ConnectResult.Success
             } catch (e: CancellationException) {
-                closeClient(sdkClient, config.commonOptions.name)
+                sdkClient?.let { closeClient(it, config.commonOptions.name) }
                 throw e
             } catch (e: Exception) {
-                closeClient(sdkClient, config.commonOptions.name)
+                sdkClient?.let { closeClient(it, config.commonOptions.name) }
                 Log.e(TAG, "Failed to connect MCP server ${config.id}", e)
                 if (oauthCoordinator.needsAuthorization(config, e)) {
                     statusStore.update(config.id, McpStatus.NeedsAuthorization)
@@ -355,10 +359,10 @@ internal class McpSessionRegistry(
 
     private suspend fun syncTools(
         session: McpSession,
-        sdkClient: Client,
+        sdkClient: RmcpClient,
         connectionConfig: McpServerConfig,
     ): McpServerConfig {
-        val serverTools = sdkClient.listTools().tools
+        val serverTools = sdkClient.listTools()
         Log.i(TAG, "Synced ${serverTools.size} tools from ${connectionConfig.id}")
         var updatedConfig = connectionConfig
         settingsStore.update { old ->
@@ -375,25 +379,10 @@ internal class McpSessionRegistry(
         return updatedConfig
     }
 
-    private fun installTransportCallbacks(
-        config: McpServerConfig,
-        sdkClient: Client,
-        transport: AbstractTransport,
-    ) {
-        transport.onClose {
-            Log.i(TAG, "Transport closed for ${config.id} (${config.commonOptions.name})")
-            requestReconnect(config.id, sdkClient)
-        }
-        transport.onError { error ->
-            Log.e(TAG, "Transport error for ${config.id}: ${error.message}")
-            if (!isSseStreamGiveUpError(error)) requestReconnect(config.id, sdkClient)
-        }
-    }
-
     /** 合并重复的 onError/onClose 通知，并保证每个 Session 最多只有一个重连任务。 */
     private fun requestReconnect(
         configId: Uuid,
-        sourceClient: Client?,
+        sourceClient: RmcpClient?,
         retryAfterFailure: Boolean = false,
     ) {
         appScope.launch {
@@ -459,6 +448,8 @@ internal class McpSessionRegistry(
         session.lifecycleMutex.withLock {
             session.reconnectJob?.cancel()
             session.reconnectJob = null
+            session.healthJob?.cancel()
+            session.healthJob = null
             session.reconnectAttempt = 0
             val sdkClient = session.client
             session.client = null
@@ -467,45 +458,14 @@ internal class McpSessionRegistry(
         }
     }
 
-    private suspend fun closeClient(client: Client, serverName: String) {
+    private fun closeClient(client: RmcpClient, serverName: String) {
         runCatching { client.close() }
             .onFailure { Log.w(TAG, "Failed to close MCP client $serverName", it) }
-    }
-
-    private fun createSdkClient(config: McpServerConfig): Client = Client(
-        clientInfo = Implementation(name = config.commonOptions.name, version = "1.0")
-    )
-
-    private fun createTransport(config: McpServerConfig): AbstractTransport = when (config) {
-        is McpServerConfig.SseTransportServer -> SseClientTransport(
-            urlString = config.url,
-            client = httpClient,
-            requestBuilder = { appendResolvedHeaders(config) },
-        )
-
-        is McpServerConfig.StreamableHTTPServer -> StreamableHttpClientTransport(
-            url = config.url,
-            client = httpClient,
-            requestBuilder = { appendResolvedHeaders(config) },
-        )
-    }
-
-    private fun HttpRequestBuilder.appendResolvedHeaders(config: McpServerConfig) {
-        headers.appendAll(StringValues.build {
-            config.resolvedHeaders().forEach { (name, value) -> append(name, value) }
-        })
     }
 
     private fun calculateBackoffDelay(attempt: Int): Long {
         val exponentialDelay = BASE_RECONNECT_DELAY_MS * (1L shl (attempt - 1).coerceAtMost(10))
         return exponentialDelay.coerceAtMost(MAX_RECONNECT_DELAY_MS)
-    }
-
-    private fun isSseStreamGiveUpError(error: Throwable): Boolean {
-        val message = generateSequence(error) { it.cause }
-            .mapNotNull { it.message }
-            .joinToString(" ")
-        return message.contains("Maximum reconnection attempts exceeded", ignoreCase = true)
     }
 }
 
@@ -532,8 +492,8 @@ private fun hasSameConnectionParameters(
     right: McpServerConfig?,
 ): Boolean = left != null && right != null && left.connectionKey() == right.connectionKey()
 
-private fun McpServerConfig.resolvedHeaders(): List<Pair<String, String>> {
-    // 设置页“添加请求头”后未填写会留下空名称，OkHttp 会直接抛出 "name is empty"
+internal fun McpServerConfig.resolvedHeaders(): List<Pair<String, String>> {
+    // 设置页“添加请求头”后可能留下空名称；native HTTP 头解析会拒绝它。
     val base = commonOptions.headers.filter { it.first.isNotBlank() }
     val token = commonOptions.oauth?.takeIf { it.enabled }?.accessToken
     val hasAuthorization = base.any { it.first.equals("Authorization", ignoreCase = true) }
@@ -544,17 +504,17 @@ private fun McpServerConfig.resolvedHeaders(): List<Pair<String, String>> {
     }
 }
 
-private fun mergeTools(storedTools: List<McpTool>, serverTools: List<Tool>): List<McpTool> {
+private fun mergeTools(storedTools: List<McpTool>, serverTools: List<RmcpTool>): List<McpTool> {
     val toolsByName = storedTools.associateBy { it.name }
     return serverTools.map { serverTool ->
         toolsByName[serverTool.name]?.copy(
             description = serverTool.description,
-            inputSchema = serverTool.inputSchema.toSchema(),
+            inputSchema = serverTool.inputSchema,
         ) ?: McpTool(
             name = serverTool.name,
             description = serverTool.description,
             enable = true,
-            inputSchema = serverTool.inputSchema.toSchema(),
+            inputSchema = serverTool.inputSchema,
         )
     }
 }
@@ -573,6 +533,3 @@ internal fun McpServerConfig.shouldConnectDuringReconcile(
     !hasClient -> shouldInitializeOnStartup()
     else -> false
 }
-
-private fun ToolSchema.toSchema(): InputSchema =
-    InputSchema.Obj(properties = properties ?: JsonObject(emptyMap()), required = required)

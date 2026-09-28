@@ -2,7 +2,58 @@ import com.android.build.api.dsl.Packaging
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.FileInputStream
+import java.io.File
 import java.util.Properties
+import org.gradle.process.ExecOperations
+import org.gradle.api.DefaultTask
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
+import javax.inject.Inject
+
+abstract class BuildRmcpNative @Inject constructor(private val execOperations: ExecOperations) : DefaultTask() {
+    @get:InputDirectory
+    val rustSource = project.layout.projectDirectory.dir("src/main/rust/rmcp-android")
+
+    @get:OutputDirectory
+    val output = project.layout.buildDirectory.dir("generated/rmcp/jniLibs")
+
+    @get:Internal
+    val targetDirectory = project.layout.buildDirectory.dir("rmcp-target")
+
+    @TaskAction
+    fun build() {
+        val sdkRoot = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+            ?: error("ANDROID_HOME is required to build rmcp")
+        val ndkRoot = File(sdkRoot, "ndk/28.2.13676358")
+        val toolchain = File(ndkRoot, "toolchains/llvm/prebuilt/" +
+            if (System.getProperty("os.name").startsWith("Windows")) "windows-x86_64" else "linux-x86_64")
+        require(toolchain.isDirectory) { "Android NDK 28.2.13676358 is required: $toolchain" }
+        val windows = System.getProperty("os.name").startsWith("Windows")
+        val extension = if (windows) ".cmd" else ""
+        val bin = File(toolchain, "bin")
+        val manifest = File(rustSource.asFile, "Cargo.toml")
+        val targetDir = targetDirectory.get().asFile
+        val targets = mapOf("arm64-v8a" to "aarch64-linux-android", "x86_64" to "x86_64-linux-android")
+        targets.forEach { (abi, target) ->
+            val compiler = File(bin, "${target}28-clang$extension")
+            execOperations.exec {
+                executable = "cargo"
+                args("build", "--manifest-path", manifest.absolutePath, "--release", "--locked", "--target", target)
+                environment("CARGO_TARGET_DIR", targetDir.absolutePath)
+                environment("CARGO_TARGET_${target.uppercase().replace('-', '_')}_LINKER", compiler.absolutePath)
+                environment("CC_${target.replace('-', '_')}", compiler.absolutePath)
+                environment("AR_${target.replace('-', '_')}", File(bin, "llvm-ar" + if (windows) ".exe" else "").absolutePath)
+            }
+            val built = File(targetDir, "$target/release/librikkahub_rmcp.so")
+            require(built.isFile) { "rmcp library missing: $built" }
+            val destination = File(output.get().asFile, "$abi/librikkahub_rmcp.so")
+            destination.parentFile.mkdirs()
+            built.copyTo(destination, overwrite = true)
+        }
+    }
+}
 
 plugins {
     alias(libs.plugins.android.application)
@@ -33,6 +84,8 @@ android {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
     }
+
+    ndkVersion = "28.2.13676358"
 
     splits {
         abi {
@@ -96,6 +149,7 @@ android {
     }
     sourceSets {
         getByName("androidTest").assets.srcDirs("$projectDir/schemas")
+        getByName("main").jniLibs.srcDir("$buildDir/generated/rmcp/jniLibs")
     }
     androidResources {
         generateLocaleConfig = true
@@ -119,6 +173,14 @@ android {
         compilerOptions.optIn.add("kotlinx.coroutines.ExperimentalCoroutinesApi")
         compilerOptions.optIn.add("androidx.navigation3.runtime.ExperimentalNavigation3Api")
     }
+}
+
+val buildRmcpNative = tasks.register<BuildRmcpNative>("buildRmcpNative")
+tasks.matching {
+    it.name.startsWith("merge") &&
+        (it.name.endsWith("NativeLibs") || it.name.endsWith("JniLibFolders"))
+}.configureEach {
+    dependsOn(buildRmcpNative)
 }
 
 composeCompiler {
@@ -276,7 +338,6 @@ dependencies {
     implementation(libs.jlatexmath.font.cyrillic)
 
     // mcp
-    implementation(libs.modelcontextprotocol.kotlin.sdk)
 
     // jmDNS (mDNS/Bonjour for .local hostname)
     implementation(libs.jmdns)

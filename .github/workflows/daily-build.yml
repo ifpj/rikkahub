@@ -50,6 +50,23 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Set up Rust MCP build
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          rustup target add aarch64-linux-android x86_64-linux-android
+          sdkmanager "ndk;28.2.13676358"
+
+      - name: Rust cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            app/build/rmcp-target
+          key: ${{ runner.os }}-rmcp-${{ hashFiles('app/src/main/rust/rmcp-android/Cargo.lock', 'app/src/main/rust/rmcp-android/src/**') }}
+          restore-keys: |
+            ${{ runner.os }}-rmcp-
+
       # web 模块的 preBuild 会执行 `pnpm run build` 构建前端，必须准备好 Node + pnpm
       - name: Set up pnpm
         uses: pnpm/action-setup@v6.0.9
