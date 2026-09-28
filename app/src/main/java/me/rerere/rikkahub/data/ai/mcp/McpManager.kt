@@ -84,6 +84,8 @@ class McpManager(
 
     fun getStatus(config: McpServerConfig): Flow<McpStatus> = sessionRegistry.getStatus(config.id)
 
+    fun getProtocolVersion(config: McpServerConfig): String? = sessionRegistry.getProtocolVersion(config.id)
+
     fun getAllAvailableTools(assistant: Assistant): List<AvailableMcpTool> {
         val settings = settingsStore.settingsFlow.value
         return settings.mcpServers
@@ -97,6 +99,9 @@ class McpManager(
                     .map { tool -> AvailableMcpTool(server = server, tool = tool) }
             }
     }
+
+    fun getAllAvailableTools(): List<AvailableMcpTool> =
+        getAllAvailableTools(settingsStore.settingsFlow.value.getCurrentAssistant())
 
     suspend fun callTool(serverId: Uuid, toolName: String, args: JsonObject): List<UIMessagePart> {
         val result = try {
