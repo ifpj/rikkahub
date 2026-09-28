@@ -145,7 +145,7 @@ class WorkspaceManager(
 
         // 内核伪文件系统: 显式拒绝, 而不是回落到一个必然读不到的物理路径
         KERNEL_FS_MOUNTS.firstOrNull { trimmed == it || trimmed.startsWith("$it/") }?.let {
-            error("$it is a kernel filesystem and cannot be read as a file, use workspace_shell instead")
+            error("$it is a kernel filesystem and cannot be read as a file, use workspace_exec_command instead")
         }
 
         return RootfsLocation(linuxDir(root), trimmed.trimStart('/'))
@@ -272,6 +272,7 @@ class WorkspaceManager(
         interrupt: Boolean = false,
         terminalRows: Int? = null,
         terminalColumns: Int? = null,
+        yieldMillis: Long = DEFAULT_SESSION_WAIT_MS,
     ): WorkspaceShellSessionResult {
         val session = getShellSession(root, sessionId)
         if (stdin != null) session.process.writeStdin(stdin)
@@ -283,6 +284,9 @@ class WorkspaceManager(
         if (terminate) {
             session.process.terminate()
             session.process.await(TERMINATION_WAIT_MS)
+        }
+        if (!terminate) {
+            session.process.await(yieldMillis.coerceIn(0, MAX_SESSION_YIELD_MS))
         }
         return takeShellSessionSnapshot(session)
     }

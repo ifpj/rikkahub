@@ -108,8 +108,7 @@ object ToolUIRegistry {
         WriteFileToolUI,
         ShellToolUI,
     ).associateBy { it.toolName } + mapOf(
-        "workspace_shell_wait" to ShellToolUI,
-        "workspace_shell_write" to ShellToolUI,
+        "workspace_write_stdin" to ShellToolUI,
     )
 
     /** 查找工具对应的渲染器, 未注册时返回默认渲染器 */

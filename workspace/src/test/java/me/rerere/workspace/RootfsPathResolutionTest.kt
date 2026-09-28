@@ -102,7 +102,7 @@ class RootfsPathResolutionTest {
         val error = assertThrows(IllegalStateException::class.java) {
             manager.rootfsFileSize(root, "/proc/version")
         }
-        assertTrue(error.message!!.contains("workspace_shell"))
+        assertTrue(error.message!!.contains("workspace_exec_command"))
     }
 
     @Test

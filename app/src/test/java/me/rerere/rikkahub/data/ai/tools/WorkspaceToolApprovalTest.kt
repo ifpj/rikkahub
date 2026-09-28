@@ -6,19 +6,18 @@ import org.junit.Test
 
 class WorkspaceToolApprovalTest {
     @Test
-    fun `shell continuation tools do not request approval by default`() {
-        assertFalse(resolveWorkspaceToolApproval("workspace_shell_wait", emptyMap()))
-        assertFalse(resolveWorkspaceToolApproval("workspace_shell_write", emptyMap()))
+    fun `command requires approval and stdin continuation does not`() {
+        assertTrue(resolveWorkspaceToolApproval("workspace_exec_command", emptyMap()))
+        assertFalse(resolveWorkspaceToolApproval("workspace_write_stdin", emptyMap()))
     }
 
     @Test
-    fun `shell continuation tools honor workspace approval overrides`() {
+    fun `command approval honors workspace overrides`() {
         val overrides = mapOf(
-            "workspace_shell_wait" to true,
-            "workspace_shell_write" to true,
+            "workspace_exec_command" to false,
         )
 
-        assertTrue(resolveWorkspaceToolApproval("workspace_shell_wait", overrides))
-        assertTrue(resolveWorkspaceToolApproval("workspace_shell_write", overrides))
+        assertFalse(resolveWorkspaceToolApproval("workspace_exec_command", overrides))
+        assertFalse(resolveWorkspaceToolApproval("workspace_write_stdin", overrides))
     }
 }
