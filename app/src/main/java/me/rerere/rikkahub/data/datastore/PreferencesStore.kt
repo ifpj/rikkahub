@@ -172,6 +172,8 @@ class SettingsStore internal constructor(
         val WEB_SERVER_JWT_ENABLED = booleanPreferencesKey("web_server_jwt_enabled")
         val WEB_SERVER_ACCESS_PASSWORD = stringPreferencesKey("web_server_access_password")
         val WEB_SERVER_LOCALHOST_ONLY = booleanPreferencesKey("web_server_localhost_only")
+        val WEB_SERVER_MDNS_ENABLED = booleanPreferencesKey("web_server_mdns_enabled")
+        val WEB_SERVER_TEMPORARY_START = booleanPreferencesKey("web_server_temporary_start")
 
         // 提示词注入
         val MODE_INJECTIONS = stringPreferencesKey("mode_injections")

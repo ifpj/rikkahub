@@ -337,6 +337,7 @@ private fun ChatPageContent(
             action = WebServerService.ACTION_START
             putExtra(WebServerService.EXTRA_PORT, setting.webServerPort)
             putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, setting.webServerLocalhostOnly)
+            putExtra(WebServerService.EXTRA_MDNS_ENABLED, setting.webServerMdnsEnabled)
         }
         context.startForegroundService(intent)
         if (!setting.webServerTemporaryStart) {
