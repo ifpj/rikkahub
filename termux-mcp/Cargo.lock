@@ -689,11 +689,10 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
- "futures-util",
  "rmcp",
- "serde",
  "serde_json",
  "tokio",
+ "tower",
  "uuid",
 ]
 
