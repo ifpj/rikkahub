@@ -1417,4 +1417,6 @@
   <string name="error_fast_model_provider_not_found">找不到快速模型的供應商</string>
   <string name="assistant_page_clone_with_memories">同時複製記憶</string>
   <string name="chat_page_temporary_chat_hint">臨時對話不會顯示在歷史記錄中，離開後將被刪除。</string>
+  <string name="setting_page_web_server_mdns_enabled">啟用 mDNS</string>
+  <string name="setting_page_web_server_mdns_enabled_desc">允許透過 rikkahub.local 存取；關閉後仍可透過區域網路 IP 存取，且停止服務更快。</string>
 </resources>

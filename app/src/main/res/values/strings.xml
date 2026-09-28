@@ -1431,4 +1431,6 @@
   <string name="error_fast_model_provider_not_found">Provider of the fast model not found</string>
   <string name="assistant_page_clone_with_memories">Also copy memories</string>
   <string name="chat_page_temporary_chat_hint">Temporary chats are not saved to history and are deleted when you leave.</string>
+  <string name="setting_page_web_server_mdns_enabled">Enable mDNS</string>
+  <string name="setting_page_web_server_mdns_enabled_desc">Allow access through rikkahub.local. Turning this off keeps LAN IP access and makes stopping faster.</string>
 </resources>

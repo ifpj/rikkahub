@@ -190,6 +190,7 @@ class RikkaHubApp : Application() {
                         action = WebServerService.ACTION_START
                         putExtra(WebServerService.EXTRA_PORT, settings.webServerPort)
                         putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, settings.webServerLocalhostOnly)
+                        putExtra(WebServerService.EXTRA_MDNS_ENABLED, settings.webServerMdnsEnabled)
                     }
                     startForegroundService(intent)
                 }

@@ -31,6 +31,7 @@ class WebServerService : Service() {
         const val ACTION_STOP = "me.rerere.rikkahub.action.WEB_SERVER_STOP"
         const val EXTRA_PORT = "port"
         const val EXTRA_LOCALHOST_ONLY = "localhost_only"
+        const val EXTRA_MDNS_ENABLED = "mdns_enabled"
         const val NOTIFICATION_ID = 2001
     }
 
@@ -47,12 +48,13 @@ class WebServerService : Service() {
             ACTION_START -> {
                 val port = intent.getIntExtra(EXTRA_PORT, 8080)
                 val localhostOnly = intent.getBooleanExtra(EXTRA_LOCALHOST_ONLY, false)
+                val mdnsEnabled = intent.getBooleanExtra(EXTRA_MDNS_ENABLED, true)
                 if (!startForegroundCompat()) {
                     stopSelf()
                     return START_NOT_STICKY
                 }
                 startObservingState()
-                webServerManager.start(port = port, localhostOnly = localhostOnly)
+                webServerManager.start(port = port, localhostOnly = localhostOnly, mdnsEnabled = mdnsEnabled)
             }
 
             ACTION_STOP -> {
@@ -75,7 +77,8 @@ class WebServerService : Service() {
                         startObservingState()
                         webServerManager.start(
                             port = settings.webServerPort,
-                            localhostOnly = settings.webServerLocalhostOnly
+                            localhostOnly = settings.webServerLocalhostOnly,
+                            mdnsEnabled = settings.webServerMdnsEnabled,
                         )
                     } else {
                         stopSelf()

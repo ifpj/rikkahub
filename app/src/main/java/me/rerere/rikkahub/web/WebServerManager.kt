@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.FilesManager
@@ -32,6 +33,7 @@ data class WebServerState(
     val port: Int = 8080,
     val serviceName: String = DEFAULT_SERVICE_NAME,
     val localhostOnly: Boolean = false,
+    val mdnsEnabled: Boolean = true,
     val hostname: String? = null,
     val address: String? = null,
     val error: String? = null
@@ -55,7 +57,8 @@ class WebServerManager(
     fun start(
         port: Int = 8080,
         serviceName: String = DEFAULT_SERVICE_NAME,
-        localhostOnly: Boolean = false
+        localhostOnly: Boolean = false,
+        mdnsEnabled: Boolean = true,
     ) {
         if (server != null) {
             Log.w(TAG, "Server already running")
@@ -69,7 +72,8 @@ class WebServerManager(
             val baseState = WebServerState(
                 port = port,
                 serviceName = serviceName,
-                localhostOnly = localhostOnly
+                localhostOnly = localhostOnly,
+                mdnsEnabled = mdnsEnabled,
             )
             try {
                 _state.value = _state.value.copy(isLoading = true)
@@ -83,9 +87,12 @@ class WebServerManager(
                     configureWebApi(context, chatService, conversationRepo, folderRepo, settingsStore, filesManager)
                 }.start(wait = false)
 
-                _state.value = baseState.copy(isRunning = true)
-                // 仅局域网模式注册 mDNS
-                if (!localhostOnly) {
+                val address = if (localhostOnly) null else withContext(Dispatchers.IO) {
+                    nsdRegistrar.getLocalIpAddress()?.hostAddress
+                }
+                _state.value = baseState.copy(isRunning = true, address = address)
+                // 局域网 IP 与 mDNS 注册相互独立；关闭 mDNS 仍允许通过 IP 访问。
+                if (!localhostOnly && mdnsEnabled) {
                     runCatching {
                         nsdRegistrar.register(
                             port = port,
@@ -157,10 +164,11 @@ class WebServerManager(
     fun restart(
         port: Int = _state.value.port,
         serviceName: String = _state.value.serviceName,
-        localhostOnly: Boolean = _state.value.localhostOnly
+        localhostOnly: Boolean = _state.value.localhostOnly,
+        mdnsEnabled: Boolean = _state.value.mdnsEnabled,
     ) {
         stop()
-        start(port, serviceName, localhostOnly)
+        start(port, serviceName, localhostOnly, mdnsEnabled)
     }
 
     private fun isPortAvailable(port: Int): Boolean {
