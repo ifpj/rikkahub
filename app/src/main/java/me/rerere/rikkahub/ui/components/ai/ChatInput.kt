@@ -310,6 +310,7 @@ fun ChatInput(
                             SearchPickerButton(
                                 enableSearch = assistant.enableWebSearch,
                                 settings = settings,
+                                externalSearchEnabled = settings.externalSearchEnabled,
                                 onUpdateSearchMode = { mode ->
                                     onUpdateSearchMode(mode)
                                     val enabled = mode != SearchMode.OFF

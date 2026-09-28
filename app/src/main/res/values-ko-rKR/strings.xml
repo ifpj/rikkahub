@@ -808,6 +808,8 @@
   <string name="setting_page_request_logs_desc">HTTP 요청 로그 보기</string>
   <string name="setting_page_search_add_provider">제공업체 추가</string>
   <string name="setting_page_search_common_options">일반 옵션</string>
+  <string name="setting_page_search_external_enabled">외부 검색 사용</string>
+  <string name="setting_page_search_external_enabled_desc">끄면 홈 화면의 검색 아이콘을 숨기고 대화에 외부 검색 도구를 추가하지 않습니다</string>
   <string name="setting_page_search_config">설정</string>
   <string name="setting_page_search_delete_provider">제공업체 삭제</string>
   <string name="setting_page_search_result_size">결과 크기</string>

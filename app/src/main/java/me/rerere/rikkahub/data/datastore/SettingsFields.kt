@@ -110,6 +110,7 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         json(SEARCH_SERVICES, Settings::searchServices) { copy(searchServices = it) },
         json(SEARCH_COMMON, Settings::searchCommonOptions) { copy(searchCommonOptions = it) },
         plain(SEARCH_SELECTED, Settings::searchServiceSelected) { copy(searchServiceSelected = it) },
+        plain(EXTERNAL_SEARCH_ENABLED, Settings::externalSearchEnabled) { copy(externalSearchEnabled = it) },
 
         // MCP
         json(MCP_SERVERS, Settings::mcpServers) { copy(mcpServers = it) },

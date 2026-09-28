@@ -812,6 +812,8 @@
   <string name="setting_page_request_logs_desc">檢視 HTTP 要求記錄</string>
   <string name="setting_page_search_add_provider">新增提供商</string>
   <string name="setting_page_search_common_options">通用選項</string>
+  <string name="setting_page_search_external_enabled">啟用外掛搜尋</string>
+  <string name="setting_page_search_external_enabled_desc">關閉後，主頁隱藏外掛搜尋入口，且對話不再注入外掛搜尋工具</string>
   <string name="setting_page_search_config">設定</string>
   <string name="setting_page_search_delete_provider">刪除提供商</string>
   <string name="setting_page_search_result_size">結果數量</string>

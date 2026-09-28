@@ -94,6 +94,7 @@ private val modeShapes = SearchMode.entries.map { it.shape() }
 fun SearchPickerButton(
     enableSearch: Boolean,
     settings: Settings,
+    externalSearchEnabled: Boolean = true,
     modifier: Modifier = Modifier,
     onUpdateSearchMode: (SearchMode) -> Unit,
     onUpdateSearchService: (Int) -> Unit,
@@ -101,10 +102,15 @@ fun SearchPickerButton(
 ) {
     var showSearchPicker by remember { mutableStateOf(false) }
     val currentService = settings.searchServices.getOrNull(settings.searchServiceSelected)
+    val builtInSearchEnabled = model?.tools?.contains(BuiltInTools.Search) == true
+
+    if (!externalSearchEnabled) {
+        return
+    }
 
     ToggleSurface(
         modifier = modifier,
-        checked = enableSearch || model?.tools?.contains(BuiltInTools.Search) == true,
+        checked = (externalSearchEnabled && enableSearch) || builtInSearchEnabled,
         onClick = {
             showSearchPicker = true
         }
@@ -124,7 +130,7 @@ fun SearchPickerButton(
                         imageVector = HugeIcons.AiSearch02,
                         contentDescription = stringResource(R.string.use_web_search),
                     )
-                } else if (enableSearch && currentService != null) {
+                } else if (externalSearchEnabled && enableSearch && currentService != null) {
                     AutoAIIcon(
                         name = currentService.displayName,
                         color = Color.Transparent
@@ -174,6 +180,7 @@ fun SearchPickerButton(
                 } else {
                     SearchPicker(
                         enableSearch = enableSearch,
+                        externalSearchEnabled = externalSearchEnabled,
                         settings = settings,
                         onUpdateSearchMode = onUpdateSearchMode,
                         model = model,
@@ -189,6 +196,7 @@ fun SearchPickerButton(
 @Composable
 private fun SearchPicker(
     enableSearch: Boolean,
+    externalSearchEnabled: Boolean,
     settings: Settings,
     model: Model?,
     onUpdateSearchMode: (SearchMode) -> Unit,
@@ -207,12 +215,12 @@ private fun SearchPicker(
     val showModelSearch = model != null && (supportsBuiltInSearch || hasBuiltInSearchEnabled)
     val currentMode = when {
         hasBuiltInSearchEnabled -> SearchMode.BUILT_IN
-        enableSearch -> SearchMode.LOCAL
+        externalSearchEnabled && enableSearch -> SearchMode.LOCAL
         else -> SearchMode.OFF
     }
     val modes = buildList {
         add(SearchMode.OFF)
-        add(SearchMode.LOCAL)
+        if (externalSearchEnabled) add(SearchMode.LOCAL)
         if (showModelSearch) add(SearchMode.BUILT_IN)
     }
 

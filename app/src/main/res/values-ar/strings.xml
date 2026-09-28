@@ -985,6 +985,8 @@
   <string name="setting_page_request_logs_desc">عرض سجلات طلبات HTTP</string>
   <string name="setting_page_search_add_provider">إضافة مزوّد</string>
   <string name="setting_page_search_common_options">خيارات شائعة</string>
+  <string name="setting_page_search_external_enabled">تفعيل البحث الخارجي</string>
+  <string name="setting_page_search_external_enabled_desc">عند إيقافه، يُخفى رمز البحث من الشاشة الرئيسية ولا تُضاف أداة البحث الخارجي إلى المحادثات</string>
   <string name="setting_page_search_config">التكوين</string>
   <string name="setting_page_search_delete_provider">حذف مزوّد</string>
   <string name="setting_page_search_result_size">حجم النتائج</string>

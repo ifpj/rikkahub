@@ -808,6 +808,8 @@
   <string name="setting_page_request_logs_desc">HTTPリクエストログを表示</string>
   <string name="setting_page_search_add_provider">プロバイダー追加</string>
   <string name="setting_page_search_common_options">共通オプション</string>
+  <string name="setting_page_search_external_enabled">外部検索を有効にする</string>
+  <string name="setting_page_search_external_enabled_desc">無効にすると、ホーム画面の検索アイコンを非表示にし、会話に外部検索ツールを追加しません</string>
   <string name="setting_page_search_config">設定</string>
   <string name="setting_page_search_delete_provider">プロバイダー削除</string>
   <string name="setting_page_search_result_size">結果数</string>

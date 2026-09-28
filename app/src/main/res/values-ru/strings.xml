@@ -808,6 +808,8 @@
   <string name="setting_page_request_logs_desc">Просмотр журналов HTTP-запросов</string>
   <string name="setting_page_search_add_provider">Добавить поставщика</string>
   <string name="setting_page_search_common_options">Общие параметры</string>
+  <string name="setting_page_search_external_enabled">Включить внешний поиск</string>
+  <string name="setting_page_search_external_enabled_desc">Если выключено, значок поиска скрыт на главном экране, а внешний поиск не добавляется в беседы</string>
   <string name="setting_page_search_config">Конфигурация</string>
   <string name="setting_page_search_delete_provider">Удалить поставщика</string>
   <string name="setting_page_search_result_size">Размер результата</string>

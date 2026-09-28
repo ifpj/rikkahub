@@ -142,6 +142,7 @@ class SettingsStore internal constructor(
         val SEARCH_SERVICES = stringPreferencesKey("search_services")
         val SEARCH_COMMON = stringPreferencesKey("search_common")
         val SEARCH_SELECTED = intPreferencesKey("search_selected")
+        val EXTERNAL_SEARCH_ENABLED = booleanPreferencesKey("external_search_enabled")
 
         // MCP
         val MCP_SERVERS = stringPreferencesKey("mcp_servers")
