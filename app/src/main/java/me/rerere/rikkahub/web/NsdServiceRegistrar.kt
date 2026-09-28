@@ -111,7 +111,7 @@ class NsdServiceRegistrar(
         Log.i(TAG, "Service unregistered")
     }
 
-    private fun getLocalIpAddress(): InetAddress? {
+    internal fun getLocalIpAddress(): InetAddress? {
         return try {
             val wifiManager = context.applicationContext
                 .getSystemService(Context.WIFI_SERVICE) as? WifiManager

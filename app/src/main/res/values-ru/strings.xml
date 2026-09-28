@@ -1822,4 +1822,6 @@
   <string name="chat_page_deselect_all">Снять все</string>
   <string name="chat_page_clear_selection">Снять выделение</string>
   <string name="chat_page_temporary_chat_hint">Временный чат не сохраняется в истории и удаляется при выходе.</string>
+  <string name="setting_page_web_server_mdns_enabled">Включить mDNS</string>
+  <string name="setting_page_web_server_mdns_enabled_desc">Доступ через rikkahub.local. После отключения доступ по IP в локальной сети сохранится, а остановка станет быстрее.</string>
 </resources>

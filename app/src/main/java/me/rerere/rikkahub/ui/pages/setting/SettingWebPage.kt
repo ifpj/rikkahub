@@ -108,6 +108,7 @@ fun SettingWebPage() {
             action = WebServerService.ACTION_START
             putExtra(WebServerService.EXTRA_PORT, settings.webServerPort)
             putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, settings.webServerLocalhostOnly)
+            putExtra(WebServerService.EXTRA_MDNS_ENABLED, settings.webServerMdnsEnabled)
         }
         context.startForegroundService(intent)
         if (!settings.webServerTemporaryStart) {
@@ -247,6 +248,22 @@ fun SettingWebPage() {
                                 },
                                 // 运行中不允许切换 需重启服务生效
                                 enabled = !serverState.isRunning,
+                            )
+                        },
+                    )
+                    item(
+                        headlineContent = { Text(stringResource(R.string.setting_page_web_server_mdns_enabled)) },
+                        supportingContent = { Text(stringResource(R.string.setting_page_web_server_mdns_enabled_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = settings.webServerMdnsEnabled,
+                                onCheckedChange = { checked ->
+                                    scope.launch {
+                                        settingsStore.update { it.copy(webServerMdnsEnabled = checked) }
+                                    }
+                                },
+                                enabled = !serverState.isRunning && !serverState.isLoading &&
+                                    !settings.webServerLocalhostOnly,
                             )
                         },
                     )
