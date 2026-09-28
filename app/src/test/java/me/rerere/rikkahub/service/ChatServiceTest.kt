@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.service
 
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.encodeToString
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.CustomBody
@@ -9,6 +10,7 @@ import me.rerere.ai.provider.Model
 import me.rerere.rikkahub.data.ai.tools.shouldUseExternalWebSearch
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.utils.JsonInstant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -17,6 +19,19 @@ import org.junit.Test
 import kotlin.uuid.Uuid
 
 class ChatServiceTest {
+    @Test
+    fun `temporary conversation state is not serialized`() {
+        val conversation = Conversation.ofId(Uuid.random(), Uuid.random(), newConversation = true)
+            .copy(isTemporary = true)
+
+        val encoded = JsonInstant.encodeToString(conversation)
+        val decoded = JsonInstant.decodeFromString<Conversation>(encoded)
+
+        assertFalse(encoded.contains("isTemporary"))
+        assertFalse(decoded.isTemporary)
+        assertFalse(decoded.newConversation)
+    }
+
     @Test
     fun `fork conversation inherits folder and workspace context`() {
         val source = Conversation(

@@ -291,6 +291,8 @@
   <string name="chat_page_message_count">%d개 메시지</string>
   <string name="chat_page_move_to_assistant">어시스턴트로 이동</string>
   <string name="chat_page_new_chat">새 채팅</string>
+  <string name="chat_page_temporary_chat">임시 채팅</string>
+  <string name="chat_page_disable_temporary_chat">임시 채팅 끄기</string>
   <string name="chat_page_new_message">새 메시지</string>
   <string name="chat_page_nickname_placeholder">이름을 입력하세요</string>
   <string name="chat_page_no_conversations">대화 없음</string>

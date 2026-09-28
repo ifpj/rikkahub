@@ -334,6 +334,8 @@
   <string name="chat_page_move_to_assistant">نقل إلى المساعد</string>
   <string name="chat_page_move_to_folder">نقل إلى مجلد</string>
   <string name="chat_page_new_chat">دردشة جديدة</string>
+  <string name="chat_page_temporary_chat">محادثة مؤقتة</string>
+  <string name="chat_page_disable_temporary_chat">إيقاف المحادثة المؤقتة</string>
   <string name="chat_page_new_message">رسالة جديدة</string>
   <string name="chat_page_nickname_placeholder">يرجى إدخال الاسم المستعار</string>
   <string name="chat_page_no_conversations">لا توجد محادثات</string>

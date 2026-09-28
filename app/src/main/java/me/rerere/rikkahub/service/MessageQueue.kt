@@ -105,6 +105,12 @@ class MessageQueue {
         state.value.messages.forEach { it.reply?.completeExceptionally(MessageQueuePausedException()) }
     }
 
+    @Synchronized
+    fun discard(): List<QueuedMessage> = state.value.messages.also { messages ->
+        mutableState.value = MessageQueueState(paused = true)
+        messages.forEach { it.reply?.complete(null) }
+    }
+
     fun failReplyWaiters(message: String) {
         state.value.messages.forEach {
             it.reply?.completeExceptionally(IllegalStateException(message))

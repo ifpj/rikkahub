@@ -62,6 +62,7 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
+import me.rerere.hugeicons.stroke.Incognito
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
 import me.rerere.hugeicons.stroke.Menu03
 import me.rerere.hugeicons.stroke.MessageAdd01
@@ -384,6 +385,7 @@ private fun ChatPageContent(
                     onNewChat = {
                         navigateToChatPage(navController)
                     },
+                    onTemporaryChat = vm::setTemporaryConversation,
                     onClickMenu = {
                         previewMode = !previewMode
                     },
@@ -740,6 +742,7 @@ private fun TopBar(
     previewMode: Boolean,
     onClickMenu: () -> Unit,
     onNewChat: () -> Unit,
+    onTemporaryChat: (Boolean) -> Unit,
     onUpdateTitle: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -778,7 +781,12 @@ private fun TopBar(
                     val model = settings.getCurrentChatModel()
                     val provider = model?.findProvider(providers = settings.providers, checkOverwrite = false)
                     Text(
-                        text = conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) },
+                        text = conversation.title.ifBlank {
+                            stringResource(
+                                if (conversation.isTemporary) R.string.chat_page_temporary_chat
+                                else R.string.chat_page_new_chat
+                            )
+                        },
                         maxLines = 1,
                         style = MaterialTheme.typography.bodyMedium,
                         overflow = TextOverflow.Ellipsis,
@@ -808,10 +816,28 @@ private fun TopBar(
 
             IconButton(
                 onClick = {
-                    onNewChat()
+                    if (conversation.newConversation) {
+                        onTemporaryChat(!conversation.isTemporary)
+                    } else {
+                        onNewChat()
+                    }
                 }
             ) {
-                Icon(HugeIcons.MessageAdd01, "New Message")
+                Icon(
+                    imageVector = if (conversation.newConversation) HugeIcons.Incognito else HugeIcons.MessageAdd01,
+                    contentDescription = stringResource(
+                        when {
+                            !conversation.newConversation -> R.string.chat_page_new_chat
+                            conversation.isTemporary -> R.string.chat_page_disable_temporary_chat
+                            else -> R.string.chat_page_temporary_chat
+                        }
+                    ),
+                    tint = if (conversation.isTemporary && conversation.newConversation) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        LocalContentColor.current
+                    },
+                )
             }
         },
     )
