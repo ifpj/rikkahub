@@ -1821,4 +1821,5 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="chat_page_select_all">すべて選択</string>
   <string name="chat_page_deselect_all">すべて選択解除</string>
   <string name="chat_page_clear_selection">選択を解除</string>
+  <string name="chat_page_temporary_chat_hint">一時チャットは履歴に表示されず、退出すると削除されます。</string>
 </resources>

@@ -1821,4 +1821,5 @@
   <string name="chat_page_select_all">Выбрать все</string>
   <string name="chat_page_deselect_all">Снять все</string>
   <string name="chat_page_clear_selection">Снять выделение</string>
+  <string name="chat_page_temporary_chat_hint">Временный чат не сохраняется в истории и удаляется при выходе.</string>
 </resources>

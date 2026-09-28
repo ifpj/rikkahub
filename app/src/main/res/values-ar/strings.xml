@@ -1811,4 +1811,5 @@
   <string name="chat_page_select_all">تحديد الكل</string>
   <string name="chat_page_deselect_all">إلغاء تحديد الكل</string>
   <string name="chat_page_clear_selection">إلغاء التحديد</string>
+  <string name="chat_page_temporary_chat_hint">لا تظهر المحادثات المؤقتة في السجل وتُحذف عند المغادرة.</string>
 </resources>

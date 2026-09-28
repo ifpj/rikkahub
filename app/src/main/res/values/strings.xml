@@ -1846,4 +1846,5 @@
   <string name="chat_page_select_all">Select all</string>
   <string name="chat_page_deselect_all">Deselect all</string>
   <string name="chat_page_clear_selection">Clear selection</string>
+  <string name="chat_page_temporary_chat_hint">Temporary chats are not saved to history and are deleted when you leave.</string>
 </resources>

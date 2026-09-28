@@ -1836,4 +1836,5 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="chat_page_select_all">全选</string>
   <string name="chat_page_deselect_all">取消全选</string>
   <string name="chat_page_clear_selection">清除选择</string>
+  <string name="chat_page_temporary_chat_hint">临时对话不会显示在历史记录中，离开后将被删除。</string>
 </resources>
