@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.service
 
 import android.app.Application
+import android.net.Uri
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
@@ -215,6 +216,37 @@ class ChatService(
 
     fun removeConversationReference(conversationId: Uuid) {
         sessionManager.release(conversationId)
+    }
+
+    /** Temporary chats stay in the live session and are never written to conversation history. */
+    fun setTemporaryConversation(conversationId: Uuid, enabled: Boolean): Boolean {
+        val conversation = sessionManager.get(conversationId)?.state?.value ?: return false
+        if (!conversation.newConversation) return false
+        sessionManager.get(conversationId)?.update { it.copy(isTemporary = enabled) }
+        return true
+    }
+
+    fun discardTemporaryConversation(conversationId: Uuid) {
+        val session = sessionManager.get(conversationId) ?: return
+        if (!session.state.value.isTemporary) return
+        val (queued, jobs, submitting) = synchronized(session) {
+            val queued = session.inbox.discard()
+            val submitting = session.submittingMessage
+            val jobs = session.cancelJobs()
+            Triple(queued, jobs, submitting)
+        }
+        appScope.launch(Dispatchers.IO) {
+            jobs.forEach { it.join() }
+            val candidates = session.state.value.files.map(Uri::toString).toSet() +
+                (queued + listOfNotNull(submitting)).flatMap { it.parts }.localFileUrls()
+            val otherSessions = sessionManager.snapshot().filter { it.id != conversationId }
+            val activeReferences = otherSessions.flatMap { other ->
+                other.state.value.files.map(Uri::toString) +
+                    other.inbox.state.value.messages.flatMap { it.parts }.localFileUrls()
+            }.toSet()
+            val unusedFiles = candidates.filter { it !in activeReferences && !conversationRepo.hasFileReference(it) }
+            filesManager.deleteChatFiles(unusedFiles.map(String::toUri))
+        }
     }
 
     fun getConversationFlow(conversationId: Uuid): StateFlow<Conversation> =
@@ -492,6 +524,7 @@ class ChatService(
                 val notices = if (queued.answer) session.inbox.takeNotices() else emptyList()
                 session.update {
                     it.copy(
+                        newConversation = false,
                         messageNodes = it.messageNodes +
                             listOfNotNull(notices.takeIf { n -> n.isNotEmpty() }?.toNoticeNode()) +
                             UIMessage(
@@ -848,6 +881,7 @@ class ChatService(
         withLoadedSession<Unit>(conversationId) { session ->
             val incarnation = session.incarnation
             val conversation = session.state.value
+            if (conversation.isTemporary) return@withLoadedSession
             if (!force && conversation.title.isNotBlank()) return@withLoadedSession
 
             val settings = settingsStore.awaitLoaded()

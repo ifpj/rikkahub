@@ -104,6 +104,7 @@ class ChatVM(
 
     override fun onCleared() {
         voiceSession.stop()
+        chatService.discardTemporaryConversation(_conversationId)
         super.onCleared()
         // 移除对话引用
         chatService.removeConversationReference(_conversationId)
@@ -301,6 +302,12 @@ class ChatVM(
     fun updateTitle(title: String) {
         viewModelScope.launch {
             chatService.updateTitle(_conversationId, title)
+        }
+    }
+
+    fun setTemporaryConversation(enabled: Boolean) {
+        if (chatService.setTemporaryConversation(_conversationId, enabled)) {
+            context.writeStringPreference("lastConversationId", if (enabled) null else _conversationId.toString())
         }
     }
 

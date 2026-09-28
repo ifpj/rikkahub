@@ -184,6 +184,12 @@ class ConversationInbox {
     }
 
     @Synchronized
+    fun discard(): List<QueuedMessage> = state.value.messages.also { messages ->
+        mutableState.value = InboxState(paused = true)
+        messages.forEach { it.reply?.complete(null) }
+    }
+
+    @Synchronized
     fun resume() {
         mutableState.value = state.value.copy(paused = false)
     }

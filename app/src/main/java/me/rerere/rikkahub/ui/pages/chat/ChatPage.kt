@@ -74,6 +74,8 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Delete01
+import me.rerere.hugeicons.stroke.Cancel01
+import me.rerere.hugeicons.stroke.Incognito
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
 import me.rerere.hugeicons.stroke.Menu03
 import me.rerere.hugeicons.stroke.MessageAdd01
@@ -410,6 +412,7 @@ private fun ChatPageContent(
                     onNewChat = {
                         navigateToChatPage(navController)
                     },
+                    onTemporaryChat = vm::setTemporaryConversation,
                     onShowOverview = {
                         selectionState.selecting = false
                         previewMode = true
@@ -708,6 +711,7 @@ private fun TopBar(
     hazeState: HazeState,
     showCapsuleBackground: Boolean,
     onNewChat: () -> Unit,
+    onTemporaryChat: (Boolean) -> Unit,
     onShowOverview: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit,
@@ -754,7 +758,12 @@ private fun TopBar(
                 Column {
                     val provider = chatModel?.findProvider(providers = settings.providers, checkOverwrite = false)
                     Text(
-                        text = conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) },
+                        text = conversation.title.ifBlank {
+                            stringResource(
+                                if (conversation.isTemporary) R.string.chat_page_temporary_chat
+                                else R.string.chat_page_new_chat
+                            )
+                        },
                         maxLines = 1,
                         style = MaterialTheme.typography.bodyMedium,
                         overflow = TextOverflow.Ellipsis,
@@ -782,10 +791,14 @@ private fun TopBar(
             ) {
                 IconButton(
                     onClick = {
-                        onNewChat()
+                        if (conversation.newConversation) onTemporaryChat(!conversation.isTemporary) else onNewChat()
                     }
                 ) {
-                    Icon(HugeIcons.MessageAdd01, "New Message")
+                    Icon(
+                        imageVector = if (conversation.newConversation) HugeIcons.Incognito else HugeIcons.MessageAdd01,
+                        contentDescription = stringResource(if (conversation.newConversation) R.string.chat_page_temporary_chat else R.string.chat_page_new_chat),
+                        tint = if (conversation.isTemporary) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                    )
                 }
                 ChatPageMenu(
                     enabled = conversation.messageNodes.isNotEmpty(),

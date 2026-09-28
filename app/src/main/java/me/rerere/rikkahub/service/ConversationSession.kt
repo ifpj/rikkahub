@@ -115,6 +115,7 @@ class ConversationSession(
         if (!isInitialized) return state.value
         return writeMutex.withLock {
             val latest = state.value
+            if (latest.isTemporary) return@withLock latest
             if (latest === lastWritten) return@withLock latest
             // 还没内容的新会话不落库，也不能提前固定配置：会话开始前聊天页的修改要写回助手
             if (!existsInDatabase && latest.title.isBlank() && latest.messageNodes.isEmpty()) {
