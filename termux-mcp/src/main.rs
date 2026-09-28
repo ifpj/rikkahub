@@ -1,6 +1,7 @@
 use axum::{
-    extract::State,
+    extract::{Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
     response::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
@@ -9,14 +10,27 @@ use axum::{
     Json, Router,
 };
 use clap::Parser;
+use rmcp::{
+    model::{
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
+        ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerConfig,
+        Tool,
+    },
+    service::RequestContext,
+    transport::streamable_http_server::{
+        session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+    },
+    ErrorData, ServerHandler,
+};
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap, convert::Infallible, env, net::SocketAddr, path::PathBuf, sync::Arc,
-    time::Duration,
+    borrow::Cow, collections::HashMap, convert::Infallible, env, net::SocketAddr, path::PathBuf,
+    sync::Arc, time::Duration,
 };
 use tokio::{process::Command, sync::Mutex, time::sleep};
 use uuid::Uuid;
 
+#[allow(dead_code)]
 const PROTOCOL_VERSION: &str = "2024-11-05";
 const SERVER_VERSION: &str = "0.1.0";
 const DEFAULT_YIELD_MS: u64 = 1_000;
@@ -101,6 +115,65 @@ impl IntoResponse for ServerError {
     }
 }
 
+#[derive(Clone)]
+struct TermuxMcpServer {
+    state: AppState,
+}
+
+impl ServerHandler for TermuxMcpServer {
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_protocol_version(ProtocolVersion::V_2024_11_05)
+            .with_server_info(Implementation::new("rikkahub-termux-mcp", SERVER_VERSION))
+    }
+
+    fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
+        Cow::Owned(vec![
+            ProtocolVersion::V_2024_11_05,
+            ProtocolVersion::V_2025_03_26,
+            ProtocolVersion::V_2025_06_18,
+            ProtocolVersion::V_2025_11_25,
+            ProtocolVersion::V_2026_07_28,
+        ])
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<rmcp::RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        Ok(ListToolsResult::with_all_items(vec![
+            exec_command_tool(),
+            write_stdin_tool(),
+        ]))
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        _context: RequestContext<rmcp::RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        let args = request
+            .arguments
+            .map(Value::Object)
+            .unwrap_or_else(|| json!({}));
+        let result = match request.name.as_ref() {
+            "exec_command" => execute_command(&self.state, &args).await,
+            "write_stdin" => write_stdin(&self.state, &args).await,
+            name => {
+                return Err(ErrorData::invalid_params(
+                    format!("Unknown tool: {name}"),
+                    None,
+                ));
+            }
+        };
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![ContentBlock::text(text)]).into()),
+            Err(error) => Ok(CallToolResult::error(vec![ContentBlock::text(error.0)]).into()),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -123,9 +196,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
+    let mcp_state = state.clone();
+    let mcp_service = StreamableHttpService::new(
+        move || {
+            Ok(TermuxMcpServer {
+                state: mcp_state.clone(),
+            })
+        },
+        Arc::new(LocalSessionManager::default()),
+        StreamableHttpServerConfig::default()
+            .with_legacy_session_mode(true)
+            .with_json_response(true),
+    );
     let router = Router::new()
         .route("/health", get(health))
-        .route("/mcp", get(sse_stream).post(mcp_post).delete(mcp_delete))
+        .nest_service("/mcp", mcp_service)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            authorize_request,
+        ))
         .with_state(state);
     let address = SocketAddr::new(bind, args.port);
     println!("rikkahub-termux-mcp listening on http://{address}/mcp");
@@ -140,10 +229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn health(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(response) = authorize(&state, &headers) {
-        return *response;
-    }
+async fn health() -> Response {
     Json(json!({
         "ok": true,
         "server": "rikkahub-termux-mcp",
@@ -152,6 +238,7 @@ async fn health(State(state): State<AppState>, headers: HeaderMap) -> Response {
     .into_response()
 }
 
+#[allow(dead_code)]
 async fn sse_stream(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(response) = authorize(&state, &headers) {
         return *response;
@@ -172,6 +259,7 @@ async fn sse_stream(State(state): State<AppState>, headers: HeaderMap) -> Respon
         .into_response()
 }
 
+#[allow(dead_code)]
 async fn mcp_delete(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(response) = authorize(&state, &headers) {
         return *response;
@@ -179,6 +267,7 @@ async fn mcp_delete(State(state): State<AppState>, headers: HeaderMap) -> Respon
     StatusCode::NO_CONTENT.into_response()
 }
 
+#[allow(dead_code)]
 async fn mcp_post(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -217,8 +306,51 @@ async fn mcp_post(
     }
 }
 
+fn exec_command_tool() -> Tool {
+    Tool::new(
+        "exec_command",
+        "Run a shell command in the user's Termux environment using a persistent interactive shell session. If the command is still running after yield_time_ms, use write_stdin with the returned session_id. Do not start a second command just to continue an existing session.",
+        json!({
+            "type": "object",
+            "properties": {
+                "command": { "type": "string", "description": "Shell command to run" },
+                "workdir": { "type": "string", "description": "Working directory. Defaults to the Termux home directory." },
+                "timeout_ms": { "type": "integer", "description": "Maximum session lifetime in milliseconds. Defaults to 30000." },
+                "yield_time_ms": { "type": "integer", "description": "How long to wait before returning output. Defaults to 1000." },
+                "max_output_chars": { "type": "integer", "description": "Maximum output characters returned to the model. Defaults to 12000." },
+                "rows": { "type": "integer", "description": "Initial terminal height. Defaults to 24." },
+                "columns": { "type": "integer", "description": "Initial terminal width. Defaults to 120." }
+            },
+            "required": ["command"]
+        }).as_object().unwrap().clone(),
+    )
+}
+
+fn write_stdin_tool() -> Tool {
+    Tool::new(
+        "write_stdin",
+        "Continue an existing exec_command session. Use empty chars to poll output, chars to send input, interrupt for Ctrl+C, close_stdin for EOF, or terminate to stop the session.",
+        json!({
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "string", "description": "Session ID returned by exec_command" },
+                "chars": { "type": "string", "description": "Text to write to the process stdin" },
+                "yield_time_ms": { "type": "integer", "description": "How long to wait for output after writing or polling. Defaults to 1000." },
+                "close_stdin": { "type": "boolean", "description": "Send EOF after writing" },
+                "interrupt": { "type": "boolean", "description": "Send Ctrl+C to the foreground process" },
+                "terminate": { "type": "boolean", "description": "Terminate the tmux session" },
+                "rows": { "type": "integer", "description": "New terminal height; columns must also be provided." },
+                "columns": { "type": "integer", "description": "New terminal width; rows must also be provided." }
+            },
+            "required": ["session_id"]
+        }).as_object().unwrap().clone(),
+    )
+}
+
+#[allow(dead_code)]
 async fn handle_notification(_state: &AppState, _method: &str, _message: &Value) {}
 
+#[allow(dead_code)]
 fn initialize_result(message: &Value) -> Result<Value, (i64, String)> {
     let requested = message
         .pointer("/params/protocolVersion")
@@ -240,12 +372,13 @@ fn initialize_result(message: &Value) -> Result<Value, (i64, String)> {
     }))
 }
 
+#[allow(dead_code)]
 fn tools_list_result() -> Value {
     json!({
         "tools": [
             {
-                "name": "termux_exec_command",
-                "description": "Run a shell command in the user's Termux environment using a persistent interactive shell session. If the command is still running after yield_time_ms, use termux_write_stdin with the returned session_id. Do not start a second command just to continue an existing session.",
+                "name": "exec_command",
+                "description": "Run a shell command in the user's Termux environment using a persistent interactive shell session. If the command is still running after yield_time_ms, use write_stdin with the returned session_id. Do not start a second command just to continue an existing session.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -261,12 +394,12 @@ fn tools_list_result() -> Value {
                 }
             },
             {
-                "name": "termux_write_stdin",
-                "description": "Continue an existing termux_exec_command session. Use empty chars to poll output, chars to send input, interrupt for Ctrl+C, close_stdin for EOF, or terminate to stop the session.",
+                "name": "write_stdin",
+                "description": "Continue an existing exec_command session. Use empty chars to poll output, chars to send input, interrupt for Ctrl+C, close_stdin for EOF, or terminate to stop the session.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "session_id": { "type": "string", "description": "Session ID returned by termux_exec_command" },
+                        "session_id": { "type": "string", "description": "Session ID returned by exec_command" },
                         "chars": { "type": "string", "description": "Text to write to the process stdin" },
                         "yield_time_ms": { "type": "integer", "description": "How long to wait for output after writing or polling. Defaults to 1000." },
                         "close_stdin": { "type": "boolean", "description": "Send EOF after writing" },
@@ -282,6 +415,7 @@ fn tools_list_result() -> Value {
     })
 }
 
+#[allow(dead_code)]
 async fn handle_tool_call(state: &AppState, message: &Value) -> Result<Value, (i64, String)> {
     let name = message
         .pointer("/params/name")
@@ -293,8 +427,8 @@ async fn handle_tool_call(state: &AppState, message: &Value) -> Result<Value, (i
         .unwrap_or_else(|| json!({}));
 
     let result = match name {
-        "termux_exec_command" => execute_command(state, &args).await,
-        "termux_write_stdin" => write_stdin(state, &args).await,
+        "exec_command" => execute_command(state, &args).await,
+        "write_stdin" => write_stdin(state, &args).await,
         _ => Err(ServerError::message(format!("Unknown tool: {name}"))),
     };
 
@@ -348,6 +482,10 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
             columns.to_string(),
             "-y".into(),
             rows.to_string(),
+            // tmux may start fish (or another user-selected shell). Replace
+            // it once so the persistent session and all later commands use
+            // Bash while inheriting Termux's original environment.
+            "exec bash".into(),
         ],
     )
     .await?;
@@ -774,6 +912,17 @@ fn bounded_u16(args: &Value, name: &str, default: u16, min: u16, max: u16) -> u1
         .clamp(min, max)
 }
 
+async fn authorize_request(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if let Err(response) = authorize(&state, request.headers()) {
+        return *response;
+    }
+    next.run(request).await
+}
+
 fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), Box<Response>> {
     if let Some(origin) = headers
         .get(header::ORIGIN)
@@ -819,6 +968,7 @@ fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), Box<Response>>
     }
 }
 
+#[allow(dead_code)]
 fn json_rpc_error(id: Value, code: i64, message: &str) -> Response {
     (
         StatusCode::OK,
