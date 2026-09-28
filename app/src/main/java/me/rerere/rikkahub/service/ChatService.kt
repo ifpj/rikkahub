@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.service
 
 import android.app.Application
+import android.net.Uri
 import android.util.Log
 import androidx.core.net.toUri
 import kotlinx.coroutines.CancellationException
@@ -226,6 +227,37 @@ class ChatService(
         sessionManager.release(conversationId)
     }
 
+    /** Temporary chats stay in the live session and are never written to conversation history. */
+    fun setTemporaryConversation(conversationId: Uuid, enabled: Boolean): Boolean {
+        val conversation = sessionManager.get(conversationId)?.state?.value ?: return false
+        if (!conversation.newConversation) return false
+        updateConversation(conversationId, conversation.copy(isTemporary = enabled))
+        return true
+    }
+
+    fun discardTemporaryConversation(conversationId: Uuid) {
+        val session = sessionManager.get(conversationId) ?: return
+        if (!session.state.value.isTemporary) return
+        val (queued, jobs, submitting) = synchronized(session) {
+            val queued = session.messageQueue.discard()
+            val submitting = session.submittingMessage
+            val jobs = session.cancelJobs()
+            Triple(queued, jobs, submitting)
+        }
+        appScope.launch(Dispatchers.IO) {
+            jobs.forEach { it.join() }
+            val candidates = session.state.value.files.map(Uri::toString).toSet() +
+                (queued + listOfNotNull(submitting)).flatMap { it.parts }.localFileUrls()
+            val otherSessions = sessionManager.snapshot().filter { it.id != conversationId }
+            val activeReferences = otherSessions.flatMap { other ->
+                other.state.value.files.map(Uri::toString) +
+                    other.messageQueue.state.value.messages.flatMap { it.parts }.localFileUrls()
+            }.toSet()
+            val unusedFiles = candidates.filter { it !in activeReferences && !conversationRepo.hasFileReference(it) }
+            filesManager.deleteChatFiles(unusedFiles.map(String::toUri))
+        }
+    }
+
     fun getConversationFlow(conversationId: Uuid): StateFlow<Conversation> =
         sessionManager.getConversationFlow(conversationId)
 
@@ -408,6 +440,7 @@ class ChatService(
 
                 // 添加消息到列表
                 val newConversation = currentConversation.copy(
+                    newConversation = false,
                     messageNodes = currentConversation.messageNodes + UIMessage(
                         role = MessageRole.USER,
                         parts = processedContent,
@@ -866,6 +899,7 @@ class ChatService(
         conversation: Conversation,
         force: Boolean = false
     ) = withContext(Dispatchers.IO) {
+        if (conversation.isTemporary) return@withContext
         val shouldGenerate = when {
             force -> true
             conversation.title.isBlank() -> true
@@ -1149,12 +1183,18 @@ class ChatService(
     }
 
     suspend fun saveConversation(conversationId: Uuid, conversation: Conversation) {
+        // A stale snapshot must not turn an active temporary session into a persisted chat.
+        if (sessionManager.get(conversationId)?.state?.value?.isTemporary == true || conversation.isTemporary) {
+            updateConversation(conversationId, conversation.copy(isTemporary = true))
+            dispatchNextQueuedMessage(conversationId)
+            return
+        }
         val exists = conversationRepo.existsConversationById(conversation.id)
         if (!exists && conversation.title.isBlank() && conversation.messageNodes.isEmpty()) {
             return // 新会话且为空时不保存
         }
 
-        val updatedConversation = conversation.copy()
+        val updatedConversation = conversation.copy(newConversation = false)
         updateConversation(conversationId, updatedConversation)
 
         if (!exists) {

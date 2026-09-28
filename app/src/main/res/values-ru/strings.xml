@@ -291,6 +291,8 @@
   <string name="chat_page_message_count">%d сообщений</string>
   <string name="chat_page_move_to_assistant">Перейти к ассистенту</string>
   <string name="chat_page_new_chat">Новый чат</string>
+  <string name="chat_page_temporary_chat">Временный чат</string>
+  <string name="chat_page_disable_temporary_chat">Выключить временный чат</string>
   <string name="chat_page_new_message">Новое сообщение</string>
   <string name="chat_page_nickname_placeholder">Введите никнейм</string>
   <string name="chat_page_no_conversations">Нет бесед</string>
