@@ -272,7 +272,7 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                                 )
                             },
                             modifier = Modifier
-                                .animateItem()
+                                .then(if (isDragging) Modifier else Modifier.animateItem())
                                 .then(longPressReorder(isDragging)),
                         )
                     }
