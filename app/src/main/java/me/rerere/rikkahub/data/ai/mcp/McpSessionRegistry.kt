@@ -41,6 +41,9 @@ private class McpSession(initialConfig: McpServerConfig) {
     @Volatile
     var connectedConfig: McpServerConfig? = null
 
+    @Volatile
+    var protocolVersion: String? = null
+
     val lifecycleMutex = Mutex()
     var reconnectJob: Job? = null
     var healthJob: Job? = null
@@ -87,6 +90,8 @@ internal class McpSessionRegistry(
     private val sessions = ConcurrentHashMap<Uuid, McpSession>()
 
     fun getClient(configId: Uuid): RmcpClient? = sessions[configId]?.client
+
+    fun getProtocolVersion(configId: Uuid): String? = sessions[configId]?.protocolVersion
 
     fun getStatus(configId: Uuid): Flow<McpStatus> = statusStore.get(configId)
 
@@ -270,6 +275,7 @@ internal class McpSessionRegistry(
             val oldClient = session.client
             session.client = null
             session.connectedConfig = null
+            session.protocolVersion = null
             oldClient?.let { closeClient(it, config.commonOptions.name) }
 
             var sdkClient: RmcpClient? = null
@@ -286,6 +292,8 @@ internal class McpSessionRegistry(
 
                 session.config = syncedConfig
                 session.connectedConfig = syncedConfig
+                val protocolVersion = connectedClient.protocolVersion()
+                session.protocolVersion = protocolVersion
                 session.client = connectedClient
                 session.reconnectAttempt = 0
                 statusStore.update(config.id, McpStatus.Connected)
@@ -301,7 +309,7 @@ internal class McpSessionRegistry(
                 Log.i(
                     TAG,
                     "Connected MCP server ${config.id} (${config.commonOptions.name}), " +
-                        "protocol ${connectedClient.protocolVersion()}"
+                        "protocol $protocolVersion"
                 )
                 ConnectResult.Success
             } catch (e: CancellationException) {
@@ -400,6 +408,7 @@ internal class McpSessionRegistry(
                     val failedClient = session.client
                     session.client = null
                     session.connectedConfig = null
+                    session.protocolVersion = null
                     failedClient?.let { closeClient(it, session.config.commonOptions.name) }
                     statusStore.update(configId, McpStatus.Error("连接断开，已达最大重连次数"))
                     return@withLock
@@ -454,6 +463,7 @@ internal class McpSessionRegistry(
             val sdkClient = session.client
             session.client = null
             session.connectedConfig = null
+            session.protocolVersion = null
             sdkClient?.let { closeClient(it, session.config.commonOptions.name) }
         }
     }

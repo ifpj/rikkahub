@@ -84,6 +84,8 @@ class McpManager(
 
     fun getStatus(config: McpServerConfig): Flow<McpStatus> = sessionRegistry.getStatus(config.id)
 
+    fun getProtocolVersion(config: McpServerConfig): String? = sessionRegistry.getProtocolVersion(config.id)
+
     fun getAllAvailableTools(): List<AvailableMcpTool> {
         val settings = settingsStore.settingsFlow.value
         val assistant = settings.getCurrentAssistant()
