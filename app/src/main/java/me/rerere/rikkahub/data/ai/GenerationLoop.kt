@@ -298,7 +298,7 @@ class GenerationLoop(
                                     result = continuation(result) ?: break
                                 }
                             }
-                            val hasShellAccess = tools.any { it.name == "workspace_shell" }
+                            val hasShellAccess = tools.any { it.name == "workspace_exec_command" }
                             executedTools += tool.copy(
                                 output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
                             )

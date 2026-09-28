@@ -352,6 +352,7 @@ class WorkspaceRepository(
         interrupt: Boolean = false,
         terminalRows: Int? = null,
         terminalColumns: Int? = null,
+        yieldMillis: Long = WorkspaceManager.DEFAULT_SESSION_WAIT_MS,
     ): WorkspaceShellSessionResult {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         return runInterruptible(Dispatchers.IO) {
@@ -364,6 +365,7 @@ class WorkspaceRepository(
                 terminate = terminate,
                 terminalRows = terminalRows,
                 terminalColumns = terminalColumns,
+                yieldMillis = yieldMillis,
             )
         }
     }

@@ -13,7 +13,6 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.toMetadata
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.generateUnifiedDiff
 import me.rerere.workspace.DEFAULT_TERMINAL_COLUMNS
 import me.rerere.workspace.DEFAULT_TERMINAL_ROWS
@@ -25,24 +24,20 @@ import me.rerere.workspace.WorkspaceShellSessionStatus
 import org.koin.java.KoinJavaComponent.getKoin
 import java.io.ByteArrayOutputStream
 
-private const val SHELL_TIMEOUT_MAX_SECONDS = 600L
+private const val SHELL_TIMEOUT_MAX_MILLIS = 600_000L
 private const val SHELL_YIELD_MAX_MILLIS = 30_000L
 private const val SHELL_INITIAL_YIELD_MILLIS = 1_000L
-private const val SHELL_AUTO_WAIT_MILLIS = 1_000L
 private const val SHELL_YIELD_TIME_KEY = "yield_time_ms"
 private const val SHELL_MODEL_OUTPUT_MAX_CHARS = 16 * 1024
 private const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
 
 internal const val SHELL_TERMINAL_OUTPUT_METADATA_KEY = "shellTerminalOutput"
-private const val SHELL_AUTO_CONTINUE_METADATA_KEY = "shellAutoContinue"
 
 val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
     "workspace_read_file" to false,
     "workspace_write_file" to false,
     "workspace_edit_file" to false,
-    "workspace_shell" to true,
-    "workspace_shell_wait" to false,
-    "workspace_shell_write" to false,
+    "workspace_exec_command" to true,
 )
 
 fun resolveWorkspaceToolApproval(name: String, overrides: Map<String, Boolean>): Boolean =
@@ -63,9 +58,8 @@ suspend fun createWorkspaceTools(
         createReadFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createWriteFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createEditFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd),
-        createShellWaitTool(workspaceId, ::needsApproval, workspaceRepository),
-        createShellWriteTool(workspaceId, ::needsApproval, workspaceRepository),
+        createShellExecCommandTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd),
+        createShellWriteStdinTool(workspaceId, workspaceRepository),
     )
 }
 
@@ -220,23 +214,23 @@ private fun createEditFileTool(
     },
 )
 
-private fun createShellTool(
+private fun createShellExecCommandTool(
     workspaceId: String,
     needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
     defaultCwd: String? = null,
 ) = Tool(
-    name = "workspace_shell",
+    name = "workspace_exec_command",
     description = buildString {
         append("Run a shell command in the assistant's bound workspace Rootfs using an interactive PTY. ")
         append("The workspace files area is mounted at /workspace. ")
-        append("Use cwd for a path relative to the workspace files root. ")
+        append("Use workdir for a path relative to the workspace files root. ")
         if (!defaultCwd.isNullOrBlank()) {
             append("Defaults to '$defaultCwd'. ")
         }
         append("Requires Rootfs to be installed and ready. ")
-        append("Long-running commands update this tool automatically until completion. ")
-        append("Use workspace_shell_write when the process requests input or needs an interrupt.")
+        append("If the command is still running after yield_time_ms, use workspace_write_stdin with its session_id. ")
+        append("Do not start a second command just to continue an existing session.")
     },
     parameters = {
         InputSchema.Obj(
@@ -245,7 +239,7 @@ private fun createShellTool(
                     put("type", "string")
                     put("description", "Shell command to run")
                 })
-                put("cwd", buildJsonObject {
+                put("workdir", buildJsonObject {
                     put("type", "string")
                     put(
                         "description",
@@ -256,11 +250,11 @@ private fun createShellTool(
                         }
                     )
                 })
-                put("timeout", buildJsonObject {
+                put("timeout_ms", buildJsonObject {
                     put("type", "integer")
                     put(
                         "description",
-                        "Command timeout in seconds. Defaults to 30, max $SHELL_TIMEOUT_MAX_SECONDS."
+                        "Command timeout in milliseconds. Defaults to 30000, max $SHELL_TIMEOUT_MAX_MILLIS."
                     )
                 })
                 put(SHELL_YIELD_TIME_KEY, buildJsonObject {
@@ -271,6 +265,10 @@ private fun createShellTool(
                             "$SHELL_INITIAL_YIELD_MILLIS, max $SHELL_YIELD_MAX_MILLIS."
                     )
                 })
+                put("max_output_chars", buildJsonObject {
+                    put("type", "integer")
+                    put("description", "Maximum output characters returned to the model. Defaults to $SHELL_MODEL_OUTPUT_MAX_CHARS.")
+                })
                 put("rows", buildJsonObject {
                     put("type", "integer")
                     put("description", "Initial PTY height. Defaults to $DEFAULT_TERMINAL_ROWS.")
@@ -279,35 +277,28 @@ private fun createShellTool(
                     put("type", "integer")
                     put("description", "Initial PTY width. Defaults to $DEFAULT_TERMINAL_COLUMNS.")
                 })
-                put("auto_wait", buildJsonObject {
-                    put("type", "boolean")
-                    put(
-                        "description",
-                        "Automatically follow output until completion. Defaults to true; " +
-                            "set false for interactive input."
-                    )
-                })
             },
             required = listOf("command"),
         )
     },
-    needsApproval = { needsApproval("workspace_shell") },
+    needsApproval = { needsApproval("workspace_exec_command") },
     execute = {
         val params = it.jsonObject
         val command = params.string("command") ?: error("command is required")
-        val cwd = (params.string("cwd") ?: defaultCwd.orEmpty())
+        val cwd = (params.string("workdir") ?: defaultCwd.orEmpty())
             .removePrefix("/workspace/").removePrefix("/workspace")
-        val timeoutMillis = params.string("timeout")?.toLongOrNull()
-            ?.coerceIn(1L, SHELL_TIMEOUT_MAX_SECONDS)
-            ?.times(1_000L)
+        val timeoutMillis = params.string("timeout_ms")?.toLongOrNull()
+            ?.coerceIn(1_000L, SHELL_TIMEOUT_MAX_MILLIS)
             ?: WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS
         val yieldMillis = params.string(SHELL_YIELD_TIME_KEY)?.toLongOrNull()
             ?.coerceIn(0L, SHELL_YIELD_MAX_MILLIS)
             ?: SHELL_INITIAL_YIELD_MILLIS
+        val maxOutputChars = params.string("max_output_chars")?.toIntOrNull()
+            ?.coerceIn(256, SHELL_MODEL_OUTPUT_MAX_CHARS)
+            ?: SHELL_MODEL_OUTPUT_MAX_CHARS
         val terminalRows = params.string("rows")?.toIntOrNull()?.coerceIn(1, 500) ?: DEFAULT_TERMINAL_ROWS
         val terminalColumns = params.string("columns")?.toIntOrNull()?.coerceIn(1, 500)
             ?: DEFAULT_TERMINAL_COLUMNS
-        val autoWait = params.boolean("auto_wait") ?: true
         val result = workspaceRepository.startCommandSession(
             id = workspaceId,
             command = command,
@@ -317,73 +308,37 @@ private fun createShellTool(
             terminalRows = terminalRows,
             terminalColumns = terminalColumns,
         )
-        result.toMessageParts(autoContinue = autoWait)
+        result.toMessageParts(maxOutputChars = maxOutputChars)
     },
-    continueExecution = { output -> continueWorkspaceShell(workspaceId, workspaceRepository, output) },
 )
 
-private fun createShellWaitTool(
+private fun createShellWriteStdinTool(
     workspaceId: String,
-    needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
-    name = "workspace_shell_wait",
+    name = "workspace_write_stdin",
     description = """
-        Resume automatic observation of a running workspace_shell session and return new stdout/stderr.
-        It follows the session until completion or until the PTY appears to request input.
+        Continue an existing workspace_exec_command PTY session. Use empty chars to poll output,
+        chars to send input, interrupt for Ctrl+C, close_stdin for EOF, or terminate to stop the process.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
                 put("session_id", buildJsonObject {
                     put("type", "string")
-                    put("description", "Session ID returned by workspace_shell")
+                    put("description", "Session ID returned by workspace_exec_command")
+                })
+                put("chars", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Text to write to the process stdin")
                 })
                 put(SHELL_YIELD_TIME_KEY, buildJsonObject {
                     put("type", "integer")
                     put(
                         "description",
-                        "How long to wait for new output. Defaults to " +
-                            "$SHELL_AUTO_WAIT_MILLIS, max $SHELL_YIELD_MAX_MILLIS."
+                        "How long to wait for output after writing or polling. Defaults to " +
+                            "$SHELL_INITIAL_YIELD_MILLIS, max $SHELL_YIELD_MAX_MILLIS."
                     )
-                })
-            },
-            required = listOf("session_id"),
-        )
-    },
-    needsApproval = { needsApproval("workspace_shell_wait") },
-    execute = {
-        val params = it.jsonObject
-        val sessionId = params.string("session_id") ?: error("session_id is required")
-        val yieldMillis = params.string(SHELL_YIELD_TIME_KEY)?.toLongOrNull()
-            ?.coerceIn(0L, SHELL_YIELD_MAX_MILLIS)
-            ?: SHELL_AUTO_WAIT_MILLIS
-        val result = workspaceRepository.waitCommandSession(workspaceId, sessionId, yieldMillis)
-        result.toMessageParts()
-    },
-    continueExecution = { output -> continueWorkspaceShell(workspaceId, workspaceRepository, output) },
-)
-
-private fun createShellWriteTool(
-    workspaceId: String,
-    needsApproval: (String) -> Boolean,
-    workspaceRepository: WorkspaceRepository,
-) = Tool(
-    name = "workspace_shell_write",
-    description = """
-        Interact with a running workspace_shell PTY: write text, send Ctrl+C or EOF, resize, or terminate the process.
-        Approval follows the workspace tool settings.
-    """.trimIndent().replace("\n", " "),
-    parameters = {
-        InputSchema.Obj(
-            properties = buildJsonObject {
-                put("session_id", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Session ID returned by workspace_shell")
-                })
-                put("stdin", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Text to write to the process stdin")
                 })
                 put("close_stdin", buildJsonObject {
                     put("type", "boolean")
@@ -409,11 +364,14 @@ private fun createShellWriteTool(
             required = listOf("session_id"),
         )
     },
-    needsApproval = { needsApproval("workspace_shell_write") },
+    needsApproval = { false },
     execute = {
         val params = it.jsonObject
         val sessionId = params.string("session_id") ?: error("session_id is required")
-        val stdin = params.string("stdin")
+        val chars = params.string("chars")
+        val yieldMillis = params.string(SHELL_YIELD_TIME_KEY)?.toLongOrNull()
+            ?.coerceIn(0L, SHELL_YIELD_MAX_MILLIS)
+            ?: SHELL_INITIAL_YIELD_MILLIS
         val closeStdin = params.boolean("close_stdin") ?: false
         val interrupt = params.boolean("interrupt") ?: false
         val terminate = params.boolean("terminate") ?: false
@@ -422,22 +380,22 @@ private fun createShellWriteTool(
         require((terminalRows == null) == (terminalColumns == null)) {
             "rows and columns must be provided together"
         }
-        require(stdin != null || closeStdin || interrupt || terminate || terminalRows != null) {
-            "At least one input, interrupt, resize, or termination action is required"
+        require(chars != null || closeStdin || interrupt || terminate || terminalRows != null) {
+            "At least one poll, input, interrupt, resize, or termination action is required"
         }
         val result = workspaceRepository.updateCommandSession(
             id = workspaceId,
             sessionId = sessionId,
-            stdin = stdin?.toByteArray(Charsets.UTF_8),
+            stdin = chars?.toByteArray(Charsets.UTF_8),
             closeStdin = closeStdin,
             interrupt = interrupt,
             terminate = terminate,
             terminalRows = terminalRows,
             terminalColumns = terminalColumns,
+            yieldMillis = yieldMillis,
         )
         result.toMessageParts()
     },
-    continueExecution = { output -> continueWorkspaceShell(workspaceId, workspaceRepository, output) },
 )
 
 private fun kotlinx.serialization.json.JsonObject.string(name: String): String? =
@@ -459,51 +417,24 @@ private fun WorkspaceShellSessionResult.toJson() = buildJsonObject {
     if (pty) put("pty", true)
 }
 
-private suspend fun continueWorkspaceShell(
-    workspaceId: String,
-    workspaceRepository: WorkspaceRepository,
-    previousOutput: List<UIMessagePart>,
-): List<UIMessagePart>? {
-    val content = previousOutput.shellContent() ?: return null
-    if (content.string("status") != "running") return null
-    if (!previousOutput.shouldAutoContinueShell()) return null
-    if (previousOutput.looksLikeTerminalPrompt()) return null
-    val sessionId = content.string("sessionId") ?: return null
-    val next = workspaceRepository.waitCommandSession(
-        id = workspaceId,
-        sessionId = sessionId,
-        yieldMillis = SHELL_AUTO_WAIT_MILLIS,
-    )
-    return next.toMessageParts(previousOutput)
-}
-
 private fun WorkspaceShellSessionResult.toMessageParts(
-    previousOutput: List<UIMessagePart> = emptyList(),
-    autoContinue: Boolean = true,
+    maxOutputChars: Int = SHELL_MODEL_OUTPUT_MAX_CHARS,
 ): List<UIMessagePart> {
-    val previousContent = previousOutput.shellContent()
-    val previousRaw = previousOutput.filterIsInstance<UIMessagePart.Text>()
-        .firstOrNull()
-        ?.metadata
-        ?.get(SHELL_TERMINAL_OUTPUT_METADATA_KEY)
-        ?.jsonPrimitive
-        ?.contentOrNull
-        .orEmpty()
-    val accumulatedStdout = previousContent?.string("stdout").orEmpty() + stdout.toPlainTerminalText()
-    val accumulatedStderr = previousContent?.string("stderr").orEmpty() + stderr.toPlainTerminalText()
-    val limitedOutput = limitShellModelOutput(accumulatedStdout, accumulatedStderr)
-    val shouldAutoContinue = previousOutput.shouldAutoContinueShell(defaultValue = autoContinue)
+    val limitedOutput = limitShellModelOutput(
+        stdout.toPlainTerminalText(),
+        stderr.toPlainTerminalText(),
+        maxOutputChars,
+    )
     val merged = copy(
         stdout = limitedOutput.stdout,
         stderr = limitedOutput.stderr,
-        truncated = truncated || limitedOutput.truncated || previousContent?.boolean("truncated") == true,
+        truncated = truncated || limitedOutput.truncated,
     )
     return listOf(
         UIMessagePart.Text(
             text = merged.toJson().toString(),
             metadata = buildJsonObject {
-                put(SHELL_TERMINAL_OUTPUT_METADATA_KEY, previousRaw + stdout + stderr)
-                put(SHELL_AUTO_CONTINUE_METADATA_KEY, shouldAutoContinue)
+                put(SHELL_TERMINAL_OUTPUT_METADATA_KEY, stdout + stderr)
             },
         )
     )
@@ -515,16 +446,16 @@ private data class LimitedShellOutput(
     val truncated: Boolean,
 )
 
-private fun limitShellModelOutput(stdout: String, stderr: String): LimitedShellOutput {
-    if (stdout.length + stderr.length <= SHELL_MODEL_OUTPUT_MAX_CHARS) {
+private fun limitShellModelOutput(stdout: String, stderr: String, maxChars: Int): LimitedShellOutput {
+    if (stdout.length + stderr.length <= maxChars) {
         return LimitedShellOutput(stdout, stderr, truncated = false)
     }
     val stdoutBudget = when {
         stdout.isEmpty() -> 0
-        stderr.isEmpty() -> SHELL_MODEL_OUTPUT_MAX_CHARS
-        else -> SHELL_MODEL_OUTPUT_MAX_CHARS * 3 / 4
+        stderr.isEmpty() -> maxChars
+        else -> maxChars * 3 / 4
     }
-    val stderrBudget = SHELL_MODEL_OUTPUT_MAX_CHARS - stdoutBudget
+    val stderrBudget = maxChars - stdoutBudget
     return LimitedShellOutput(
         stdout = stdout.truncateTerminalOutput(stdoutBudget),
         stderr = stderr.truncateTerminalOutput(stderrBudget),
@@ -540,38 +471,6 @@ private fun String.truncateTerminalOutput(maxChars: Int): String {
     val headLength = minOf(2_048, (maxChars - marker.length) / 4)
     val tailLength = maxChars - marker.length - headLength
     return take(headLength) + marker + takeLast(tailLength)
-}
-
-private fun List<UIMessagePart>.shellContent() =
-    filterIsInstance<UIMessagePart.Text>()
-        .firstOrNull()
-        ?.text
-        ?.let { text -> runCatching { JsonInstant.parseToJsonElement(text).jsonObject }.getOrNull() }
-
-private fun List<UIMessagePart>.shouldAutoContinueShell(defaultValue: Boolean = true): Boolean =
-    filterIsInstance<UIMessagePart.Text>()
-        .firstOrNull()
-        ?.metadata
-        ?.get(SHELL_AUTO_CONTINUE_METADATA_KEY)
-        ?.jsonPrimitive
-        ?.contentOrNull
-        ?.toBooleanStrictOrNull()
-        ?: defaultValue
-
-private fun List<UIMessagePart>.looksLikeTerminalPrompt(): Boolean {
-    val raw = filterIsInstance<UIMessagePart.Text>()
-        .firstOrNull()
-        ?.metadata
-        ?.get(SHELL_TERMINAL_OUTPUT_METADATA_KEY)
-        ?.jsonPrimitive
-        ?.contentOrNull
-        ?.toPlainTerminalText()
-        ?: return false
-    if (raw.isEmpty() || raw.endsWith('\n')) return false
-    val tail = raw.substringAfterLast('\n').trimEnd().lowercase()
-    return tail.endsWith(':') || tail.endsWith('?') || tail.endsWith('>') || tail.endsWith('$') ||
-        tail.endsWith('#') || tail.endsWith("password") || tail.endsWith("passphrase") ||
-        tail.matches(Regex(".*(?:\\[[^]]*[yn][^]]*]|\\([^)]*[yn][^)]*\\))$"))
 }
 
 private val ANSI_OSC = Regex("\\u001B\\][^\\u0007]*(?:\\u0007|\\u001B\\\\)")
