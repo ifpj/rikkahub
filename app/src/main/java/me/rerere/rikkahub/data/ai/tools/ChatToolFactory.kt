@@ -18,8 +18,12 @@ import me.rerere.workspace.WorkspaceShellStatus
 
 private const val TAG = "ChatToolFactory"
 
-internal fun shouldUseExternalWebSearch(assistant: Assistant, model: Model): Boolean {
-    return assistant.enableWebSearch && BuiltInTools.Search !in model.tools
+internal fun shouldUseExternalWebSearch(
+    assistant: Assistant,
+    model: Model,
+    externalSearchEnabled: Boolean = true,
+): Boolean {
+    return externalSearchEnabled && assistant.enableWebSearch && BuiltInTools.Search !in model.tools
 }
 
 class InvalidMcpServerNamesException(val names: List<String>) :
@@ -59,7 +63,7 @@ class ChatToolFactory(
                 )
             )
         }
-        if (shouldUseExternalWebSearch(assistant, model)) {
+        if (shouldUseExternalWebSearch(assistant, model, settings.externalSearchEnabled)) {
             addAll(createSearchTools(settings))
         }
         addAll(localTools.getTools(assistant.localTools))

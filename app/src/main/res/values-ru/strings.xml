@@ -46,6 +46,8 @@
   <string name="assistant_page_allow_conversation_system_prompt_desc">Разрешить каждому разговору переопределять системный запрос ассистента</string>
   <string name="assistant_page_allow_conversation_prompt_injection">Промпт-инъекции для каждой беседы</string>
   <string name="assistant_page_allow_conversation_prompt_injection_desc">Разрешить каждой беседе привязывать собственные промпт-инъекции и лорбуки</string>
+  <string name="assistant_page_allow_conversation_model">Модель для каждой беседы</string>
+  <string name="assistant_page_allow_conversation_model_desc">Разрешить выбирать модель чата отдельно для каждой беседы</string>
   <string name="assistant_page_available_variables">Доступные переменные:</string>
   <string name="assistant_page_background_opacity">Прозрачность фона</string>
   <string name="assistant_page_background_opacity_desc">Настройте видимость фонового изображения чата</string>
@@ -816,6 +818,8 @@
   <string name="setting_page_request_logs_desc">Просмотр журналов HTTP-запросов</string>
   <string name="setting_page_search_add_provider">Добавить поставщика</string>
   <string name="setting_page_search_common_options">Общие параметры</string>
+  <string name="setting_page_search_external_enabled">Включить внешний поиск</string>
+  <string name="setting_page_search_external_enabled_desc">Если выключено, значок поиска скрыт на главном экране, а внешний поиск не добавляется в беседы</string>
   <string name="setting_page_search_config">Конфигурация</string>
   <string name="setting_page_search_delete_provider">Удалить поставщика</string>
   <string name="setting_page_search_result_size">Размер результата</string>

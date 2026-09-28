@@ -46,6 +46,8 @@
   <string name="assistant_page_allow_conversation_system_prompt_desc">会話ごとにシステムプロンプトを個別に設定可能にする</string>
   <string name="assistant_page_allow_conversation_prompt_injection">会話別プロンプトインジェクション</string>
   <string name="assistant_page_allow_conversation_prompt_injection_desc">会話ごとにプロンプトインジェクションとロアブックを個別にバインド可能にする</string>
+  <string name="assistant_page_allow_conversation_model">会話ごとのモデル設定</string>
+  <string name="assistant_page_allow_conversation_model_desc">会話ごとにチャットモデルを個別に選択できるようにする</string>
   <string name="assistant_page_available_variables">"利用可能な変数: "</string>
   <string name="assistant_page_background_opacity">背景の透明度</string>
   <string name="assistant_page_background_opacity_desc">チャット背景画像の表示透明度を調整します</string>
@@ -816,6 +818,8 @@
   <string name="setting_page_request_logs_desc">HTTPリクエストログを表示</string>
   <string name="setting_page_search_add_provider">プロバイダー追加</string>
   <string name="setting_page_search_common_options">共通オプション</string>
+  <string name="setting_page_search_external_enabled">外部検索を有効にする</string>
+  <string name="setting_page_search_external_enabled_desc">無効にすると、ホーム画面の検索アイコンを非表示にし、会話に外部検索ツールを追加しません</string>
   <string name="setting_page_search_config">設定</string>
   <string name="setting_page_search_delete_provider">プロバイダー削除</string>
   <string name="setting_page_search_result_size">結果数</string>

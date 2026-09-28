@@ -152,6 +152,7 @@ class SettingsStore(
         val SEARCH_SERVICES = stringPreferencesKey("search_services")
         val SEARCH_COMMON = stringPreferencesKey("search_common")
         val SEARCH_SELECTED = intPreferencesKey("search_selected")
+        val EXTERNAL_SEARCH_ENABLED = booleanPreferencesKey("external_search_enabled")
 
         // MCP
         val MCP_SERVERS = stringPreferencesKey("mcp_servers")
@@ -244,6 +245,7 @@ class SettingsStore(
                 preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(settings.searchServices)
                 preferences[SEARCH_COMMON] = JsonInstant.encodeToString(settings.searchCommonOptions)
                 preferences[SEARCH_SELECTED] = settings.searchServiceSelected.coerceIn(0, (settings.searchServices.size - 1).coerceAtLeast(0))
+                preferences[EXTERNAL_SEARCH_ENABLED] = settings.externalSearchEnabled
 
                 preferences[MCP_SERVERS] = JsonInstant.encodeToString(settings.mcpServers)
                 preferences[WEBDAV_CONFIG] = JsonInstant.encodeToString(settings.webDavConfig)
@@ -333,6 +335,7 @@ class SettingsStore(
                     JsonInstant.decodeFromString(it)
                 } ?: SearchCommonOptions(),
                 searchServiceSelected = preferences[SEARCH_SELECTED] ?: 0,
+                externalSearchEnabled = preferences[EXTERNAL_SEARCH_ENABLED] != false,
                 mcpServers = preferences[MCP_SERVERS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -657,6 +660,7 @@ data class Settings(
     val searchServices: List<SearchServiceOptions> = listOf(SearchServiceOptions.DEFAULT),
     val searchCommonOptions: SearchCommonOptions = SearchCommonOptions(),
     val searchServiceSelected: Int = 0,
+    val externalSearchEnabled: Boolean = true,
     val mcpServers: List<McpServerConfig> = emptyList(),
     val webDavConfig: WebDavConfig = WebDavConfig(),
     val s3Config: S3Config = S3Config(),

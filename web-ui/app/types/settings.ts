@@ -165,5 +165,6 @@ export interface Settings {
   searchServices: SearchServiceOption[];
   quickMessages?: QuickMessage[];
   searchServiceSelected: number;
+  externalSearchEnabled?: boolean;
   [key: string]: unknown;
 }

@@ -46,6 +46,8 @@
   <string name="assistant_page_allow_conversation_system_prompt_desc">允许每个对话单独设置系统提示词</string>
   <string name="assistant_page_allow_conversation_prompt_injection">独立对话提示词注入</string>
   <string name="assistant_page_allow_conversation_prompt_injection_desc">允许每个对话单独绑定提示词注入和世界书</string>
+  <string name="assistant_page_allow_conversation_model">独立对话模型</string>
+  <string name="assistant_page_allow_conversation_model_desc">允许每个对话单独选择聊天模型</string>
   <string name="assistant_page_available_variables">"可用变量: "</string>
   <string name="assistant_page_background_opacity">背景透明度</string>
   <string name="assistant_page_background_opacity_desc">调整聊天背景图显示透明度</string>
@@ -862,6 +864,8 @@
   <string name="setting_page_request_logs_desc">查看 HTTP 请求日志</string>
   <string name="setting_page_search_add_provider">添加提供商</string>
   <string name="setting_page_search_common_options">通用选项</string>
+  <string name="setting_page_search_external_enabled">启用外挂搜索</string>
+  <string name="setting_page_search_external_enabled_desc">关闭后，主页隐藏外挂搜索入口，且对话不再注入外挂搜索工具</string>
   <string name="setting_page_search_config">配置</string>
   <string name="setting_page_search_delete_provider">删除提供商</string>
   <string name="setting_page_search_result_size">结果数量</string>

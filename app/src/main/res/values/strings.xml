@@ -893,6 +893,8 @@
   <string name="setting_page_request_logs_desc">View HTTP request logs</string>
   <string name="setting_page_search_add_provider">Add Provider</string>
   <string name="setting_page_search_common_options">Common Options</string>
+  <string name="setting_page_search_external_enabled">Enable External Search</string>
+  <string name="setting_page_search_external_enabled_desc">When disabled, hide external search and do not add it to conversations</string>
   <string name="setting_page_search_config">Configuration</string>
   <string name="setting_page_search_delete_provider">Delete Provider</string>
   <string name="setting_page_search_result_size">Result Size</string>
