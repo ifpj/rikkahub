@@ -61,3 +61,9 @@ cargo ndk -t arm64-v8a build --release
 - `write_stdin` 的空 `chars` 用于继续等待和轮询输出。
 - `interrupt`、`close_stdin`、`terminate` 和 `rows`/`columns` 与 Workspace Shell 的语义一致。
 - 会话通过 `tmux -L rikkahub` 隔离，用户仍可以在 Termux 中手动 attach 会话。
+- `timeout_ms` 是**空闲超时**：每次轮询或输入都会续期，只要会话还在被使用就不会被击杀；默认 10 分钟。超时击杀以 `exit_code: 124` 加 `timed_out: true` 返回。
+- 在已完成的会话上通过 `write_stdin` 发送新命令时，服务端会自动包一层退出码标记，后续命令报告自己的 `exit_code`，不会继承上一条命令的陈旧标记。
+- 会话状态持久化在 `~/.cache/rikkahub-shell-mcp/state/`，服务进程重启后已存在的会话仍可续接（修复重启后 `session_id is not known`）。
+- 已完成且闲置超过 30 分钟的会话会被自动回收（tmux 会话 + 脚本目录 + 状态文件），不再泄漏。
+- tmux `history-limit` 提升到 50000，长输出的头部不再被默认 2000 行回滚缓冲驱逐。
+- `close_stdin`（Ctrl+D）只应在程序等待 EOF 时使用；在空闲 shell 提示符下发送会退出常驻 shell 并终止会话。

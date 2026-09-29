@@ -19,19 +19,27 @@ use rmcp::{
     },
     ErrorData, ServerHandler,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     borrow::Cow, collections::HashMap, env, net::SocketAddr, path::PathBuf, sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{process::Command, sync::Mutex, time::sleep};
 use uuid::Uuid;
 
-const SERVER_VERSION: &str = "0.1.0";
+const SERVER_VERSION: &str = "0.2.0";
 const DEFAULT_YIELD_MS: u64 = 1_000;
 const MAX_YIELD_MS: u64 = 30_000;
-const DEFAULT_TIMEOUT_MS: u64 = 30_000;
+const DEFAULT_TIMEOUT_MS: u64 = 10 * 60 * 1_000;
 const MAX_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1_000;
+const WATCHER_TICK_MS: u64 = 1_000;
+const HISTORY_LIMIT: &str = "50000";
+const SESSION_IDLE_TTL_MS: u64 = 30 * 60 * 1_000;
+const GC_INTERVAL_MS: u64 = 10 * 60 * 1_000;
+const MARKER_PREFIX: &str = "__RIKKAHUB_EXIT__";
+const MARKER_TAIL_COMMAND: &str =
+    "__rikkahub_exit=$?; printf '\\n__RIKKAHUB_EXIT__%s\\n' \"$__rikkahub_exit\"";
 const DEFAULT_MAX_OUTPUT: usize = 12_000;
 const MAX_OUTPUT: usize = 64_000;
 const DEFAULT_ROWS: u16 = 24;
@@ -83,12 +91,20 @@ struct Config {
     tmux_socket: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SessionState {
     name: String,
-    last_snapshot: String,
     timeout_ms: u64,
+    #[serde(default)]
+    last_active_ms: u64,
+    #[serde(default)]
     exit_code: Option<i32>,
+    #[serde(default)]
+    timed_out: bool,
+    #[serde(default)]
+    markers_seen: u32,
+    #[serde(skip)]
+    last_snapshot: String,
 }
 
 #[derive(Debug)]
@@ -182,14 +198,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("warning: no MCP token configured; any local app can call this server");
     }
 
+    let restored = load_sessions();
+    if !restored.is_empty() {
+        println!("restored {} shell session(s) from disk", restored.len());
+    }
     let state = AppState {
         config: Arc::new(Config {
             token: args.token,
             tmux: args.tmux,
             tmux_socket: args.tmux_socket,
         }),
-        sessions: Arc::new(Mutex::new(HashMap::new())),
+        sessions: Arc::new(Mutex::new(restored)),
     };
+    let unfinished: Vec<Uuid> = state
+        .sessions
+        .lock()
+        .await
+        .iter()
+        .filter(|(_, session)| session.exit_code.is_none())
+        .map(|(session_id, _)| *session_id)
+        .collect();
+    for session_id in unfinished {
+        spawn_timeout_watcher(state.clone(), session_id);
+    }
+    spawn_gc(state.clone());
+    let _ = gc_once(&state).await;
 
     let router = build_router(state);
     let address = SocketAddr::new(bind, args.port);
@@ -246,7 +279,7 @@ fn exec_command_tool() -> Tool {
             "properties": {
                 "command": { "type": "string", "description": "Shell command to run" },
                 "workdir": { "type": "string", "description": "Working directory. Defaults to the Termux home directory." },
-                "timeout_ms": { "type": "integer", "description": "Maximum session lifetime in milliseconds. Defaults to 30000." },
+                "timeout_ms": { "type": "integer", "description": "Idle timeout in milliseconds. Renewed by every poll or write_stdin call, so an actively used session never times out. Defaults to 600000." },
                 "yield_time_ms": { "type": "integer", "description": "How long to wait before returning output. Defaults to 1000." },
                 "max_output_chars": { "type": "integer", "description": "Maximum output characters returned to the model. Defaults to 12000." },
                 "rows": { "type": "integer", "description": "Initial terminal height. Defaults to 24." },
@@ -265,11 +298,11 @@ fn write_stdin_tool() -> Tool {
             "type": "object",
             "properties": {
                 "session_id": { "type": "string", "description": "Session ID returned by exec_command" },
-                "chars": { "type": "string", "description": "Text to write to the process stdin" },
+                "chars": { "type": "string", "description": "Text to write to the process stdin. If the previous command already finished, this text is executed as a new shell command with its own exit-code tracking." },
                 "yield_time_ms": { "type": "integer", "description": "How long to wait for output after writing or polling. Defaults to 1000." },
-                "close_stdin": { "type": "boolean", "description": "Send EOF after writing" },
+                "close_stdin": { "type": "boolean", "description": "Send EOF (Ctrl+D) after writing. Only use when a program is waiting for EOF; at an idle shell prompt it exits the shell and kills the session." },
                 "interrupt": { "type": "boolean", "description": "Send Ctrl+C to the foreground process" },
-                "terminate": { "type": "boolean", "description": "Terminate the tmux session" },
+                "terminate": { "type": "boolean", "description": "Terminate the tmux session (reports exit_code 137)" },
                 "rows": { "type": "integer", "description": "New terminal height; columns must also be provided." },
                 "columns": { "type": "integer", "description": "New terminal width; rows must also be provided." }
             },
@@ -325,24 +358,40 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
         ],
     )
     .await?;
+    tmux(
+        state,
+        [
+            "set-window-option".into(),
+            "-t".into(),
+            session_name.clone(),
+            "history-limit".into(),
+            HISTORY_LIMIT.into(),
+        ],
+    )
+    .await?;
     let launch = format!(
-        "bash -- '{}' ; __rikkahub_exit=$?; printf '\\n__RIKKAHUB_EXIT__%s\\n' \"$__rikkahub_exit\"",
-        script_path.to_string_lossy()
+        "bash -- '{}' ; {}",
+        script_path.to_string_lossy(),
+        MARKER_TAIL_COMMAND
     );
     send_literal(state, &session_name, &launch).await?;
     send_key(state, &session_name, "Enter").await?;
 
     let session_state = SessionState {
         name: session_name.clone(),
-        last_snapshot: String::new(),
         timeout_ms,
+        last_active_ms: now_ms(),
         exit_code: None,
+        timed_out: false,
+        markers_seen: 0,
+        last_snapshot: String::new(),
     };
     state
         .sessions
         .lock()
         .await
-        .insert(session_id, session_state);
+        .insert(session_id, session_state.clone());
+    persist_session(&session_id, &session_state);
     spawn_timeout_watcher(state.clone(), session_id);
 
     sleep(Duration::from_millis(yield_ms)).await;
@@ -370,7 +419,25 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
         resize_session(state, &name, rows as u16, columns as u16).await?;
     }
     if let Some(chars) = chars {
-        send_text(state, &name, chars).await?;
+        if !chars.trim().is_empty() && state_entry.exit_code.is_some() {
+            // The previous command already finished, so this text starts a new
+            // command at the persistent shell prompt. Wrap it with its own
+            // exit-code marker so follow-up commands report their own status
+            // instead of inheriting the stale marker of the previous command.
+            send_new_command(state, &name, chars).await?;
+            let mut sessions = state.sessions.lock().await;
+            if let Some(entry) = sessions.get_mut(&session_id) {
+                entry.exit_code = None;
+                entry.timed_out = false;
+                entry.last_active_ms = now_ms();
+                let updated = entry.clone();
+                drop(sessions);
+                persist_session(&session_id, &updated);
+                spawn_timeout_watcher(state.clone(), session_id);
+            }
+        } else {
+            send_text(state, &name, chars).await?;
+        }
     }
     if args
         .get("interrupt")
@@ -392,15 +459,27 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
         .unwrap_or(false)
     {
         kill_session(state, &name).await?;
+        {
+            let mut sessions = state.sessions.lock().await;
+            if let Some(entry) = sessions.get_mut(&session_id) {
+                entry.exit_code = Some(137);
+                entry.last_active_ms = now_ms();
+                let updated = entry.clone();
+                drop(sessions);
+                persist_session(&session_id, &updated);
+            }
+        }
         return Ok(format_session_result(
             session_id,
             PollResult {
                 status: SessionStatus::Completed(137),
                 output: String::new(),
+                timed_out: false,
             },
         ));
     }
 
+    touch_session(state, &session_id).await;
     sleep(Duration::from_millis(yield_ms)).await;
     let output = poll_session(state, session_id, max_output).await?;
     Ok(format_session_result(session_id, output))
@@ -408,21 +487,35 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
 
 fn spawn_timeout_watcher(state: AppState, session_id: Uuid) {
     tokio::spawn(async move {
-        let timeout_ms = state
-            .sessions
-            .lock()
-            .await
-            .get(&session_id)
-            .map(|session| session.timeout_ms)
-            .unwrap_or(DEFAULT_TIMEOUT_MS);
-        sleep(Duration::from_millis(timeout_ms)).await;
-        let session = state.sessions.lock().await.get(&session_id).cloned();
-        let Some(session) = session else { return };
-        if session.exit_code.is_none() && has_session(&state, &session.name).await {
-            let _ = kill_session(&state, &session.name).await;
-            if let Some(entry) = state.sessions.lock().await.get_mut(&session_id) {
-                entry.exit_code = Some(124);
+        loop {
+            sleep(Duration::from_millis(WATCHER_TICK_MS)).await;
+            let session = state.sessions.lock().await.get(&session_id).cloned();
+            let Some(session) = session else { return };
+            if session.exit_code.is_some() {
+                // The command already finished; the GC task reaps idle sessions.
+                return;
             }
+            if now_ms().saturating_sub(session.last_active_ms) < session.timeout_ms {
+                continue;
+            }
+            if has_session(&state, &session.name).await {
+                let _ = kill_session(&state, &session.name).await;
+            }
+            let mut updated = None;
+            {
+                let mut sessions = state.sessions.lock().await;
+                if let Some(entry) = sessions.get_mut(&session_id) {
+                    if entry.exit_code.is_none() {
+                        entry.exit_code = Some(124);
+                        entry.timed_out = true;
+                    }
+                    updated = Some(entry.clone());
+                }
+            }
+            if let Some(updated) = updated {
+                persist_session(&session_id, &updated);
+            }
+            return;
         }
     });
 }
@@ -434,37 +527,59 @@ async fn poll_session(
 ) -> Result<PollResult, ServerError> {
     let session = ensure_session(state, session_id).await?;
     if !has_session(state, &session.name).await {
+        let fallback_code = session.exit_code.or(Some(1));
+        let mut updated = None;
+        {
+            let mut sessions = state.sessions.lock().await;
+            if let Some(entry) = sessions.get_mut(&session_id) {
+                if entry.exit_code.is_none() {
+                    entry.exit_code = fallback_code;
+                }
+                entry.last_active_ms = now_ms();
+                updated = Some(entry.clone());
+            }
+        }
+        if let Some(updated) = updated {
+            persist_session(&session_id, &updated);
+        }
         return Ok(PollResult {
-            status: SessionStatus::Completed(session.exit_code.unwrap_or(1)),
+            status: SessionStatus::Completed(fallback_code.unwrap_or(1)),
             output: String::new(),
+            timed_out: session.timed_out,
         });
     }
     let snapshot = capture_pane(state, &session.name).await?;
-    let delta = if snapshot.starts_with(&session.last_snapshot) {
-        snapshot[session.last_snapshot.len()..].to_string()
-    } else {
-        snapshot.clone()
-    };
-    let marker = parse_exit_code(&snapshot);
+    let delta = snapshot_delta(&session.last_snapshot, &snapshot);
+    let marker_count = count_markers(&snapshot);
+    let last_marker = parse_exit_code(&snapshot);
+    let mut refreshed = None;
     {
         let mut sessions = state.sessions.lock().await;
         if let Some(entry) = sessions.get_mut(&session_id) {
+            entry.last_active_ms = now_ms();
             entry.last_snapshot = snapshot;
-            if marker.is_some() {
-                entry.exit_code = marker;
+            if marker_count > entry.markers_seen {
+                entry.markers_seen = marker_count;
+                if let Some(code) = last_marker {
+                    entry.exit_code = Some(code);
+                    entry.timed_out = false;
+                }
             }
+            refreshed = Some(entry.clone());
         }
     }
-    let status = if let Some(exit_code) = marker {
-        SessionStatus::Completed(exit_code)
-    } else if has_session(state, &session.name).await {
-        SessionStatus::Running
+    let session = refreshed
+        .ok_or_else(|| ServerError::message(format!("Shell session {session_id} is not known")))?;
+    persist_session(&session_id, &session);
+    let status = if let Some(code) = session.exit_code {
+        SessionStatus::Completed(code)
     } else {
-        SessionStatus::Completed(1)
+        SessionStatus::Running
     };
     Ok(PollResult {
         status,
         output: limit_output(&strip_marker(&delta), max_output),
+        timed_out: session.timed_out,
     })
 }
 
@@ -472,6 +587,7 @@ async fn poll_session(
 struct PollResult {
     status: SessionStatus,
     output: String,
+    timed_out: bool,
 }
 
 #[derive(Debug)]
@@ -494,6 +610,9 @@ fn format_session_result(session_id: Uuid, result: PollResult) -> String {
     });
     if let Some(code) = exit_code {
         value["exit_code"] = json!(code);
+        if result.timed_out {
+            value["timed_out"] = json!(true);
+        }
     }
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
 }
@@ -594,6 +713,31 @@ async fn send_text(state: &AppState, name: &str, text: &str) -> Result<(), Serve
     Ok(())
 }
 
+/// Send a follow-up command at the persistent shell prompt, wrapped so that it
+/// prints its own exit-code marker when it finishes.
+async fn send_new_command(
+    state: &AppState,
+    name: &str,
+    text: &str,
+) -> Result<(), ServerError> {
+    let trimmed = text.trim_end_matches('\n');
+    let mut lines: Vec<&str> = trimmed.split('\n').collect();
+    let last = lines.pop().unwrap_or_default();
+    for line in lines {
+        if !line.is_empty() {
+            send_literal(state, name, line).await?;
+        }
+        send_key(state, name, "Enter").await?;
+    }
+    if !last.is_empty() {
+        send_literal(state, name, last).await?;
+        send_key(state, name, "Enter").await?;
+    }
+    send_literal(state, name, MARKER_TAIL_COMMAND).await?;
+    send_key(state, name, "Enter").await?;
+    Ok(())
+}
+
 async fn send_key(state: &AppState, name: &str, key: &str) -> Result<(), ServerError> {
     tmux(
         state,
@@ -649,6 +793,144 @@ fn session_dir(runtime_id: Uuid) -> Result<PathBuf, ServerError> {
         .join(runtime_id.to_string()))
 }
 
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn cache_root() -> Result<PathBuf, ServerError> {
+    let home = env::var_os("HOME").map(PathBuf::from).ok_or_else(|| {
+        ServerError::message(
+            "HOME is not set; start the MCP server from the host shell environment",
+        )
+    })?;
+    Ok(home.join(".cache").join("rikkahub-shell-mcp"))
+}
+
+fn state_dir() -> Result<PathBuf, ServerError> {
+    Ok(cache_root()?.join("state"))
+}
+
+fn persist_session(session_id: &Uuid, session: &SessionState) {
+    let Ok(dir) = state_dir() else {
+        return;
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if let Ok(text) = serde_json::to_string(session) {
+        let _ = std::fs::write(dir.join(format!("{session_id}.json")), text);
+    }
+}
+
+fn remove_state_file(session_id: &Uuid) {
+    if let Ok(dir) = state_dir() {
+        let _ = std::fs::remove_file(dir.join(format!("{session_id}.json")));
+    }
+}
+
+fn load_sessions() -> HashMap<Uuid, SessionState> {
+    let mut sessions = HashMap::new();
+    let Ok(dir) = state_dir() else {
+        return sessions;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return sessions;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let Ok(session_id) = Uuid::parse_str(stem) else {
+            continue;
+        };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Ok(session) = serde_json::from_str::<SessionState>(&text) {
+            sessions.insert(session_id, session);
+        }
+    }
+    sessions
+}
+
+async fn touch_session(state: &AppState, session_id: &Uuid) {
+    let mut sessions = state.sessions.lock().await;
+    if let Some(entry) = sessions.get_mut(session_id) {
+        entry.last_active_ms = now_ms();
+        let updated = entry.clone();
+        drop(sessions);
+        persist_session(session_id, &updated);
+    }
+}
+
+fn spawn_gc(state: AppState) {
+    tokio::spawn(async move {
+        loop {
+            sleep(Duration::from_millis(GC_INTERVAL_MS)).await;
+            let _ = gc_once(&state).await;
+        }
+    });
+}
+
+/// Reap sessions idle past the TTL, then remove session directories that no
+/// known session references anymore.
+async fn gc_once(state: &AppState) -> Result<(), ServerError> {
+    let now = now_ms();
+    let expired: Vec<(Uuid, String)> = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .iter()
+            .filter(|(_, session)| now.saturating_sub(session.last_active_ms) > SESSION_IDLE_TTL_MS)
+            .map(|(session_id, session)| (*session_id, session.name.clone()))
+            .collect()
+    };
+    for (session_id, name) in expired {
+        if has_session(state, &name).await {
+            let _ = kill_session(state, &name).await;
+        }
+        if let Some(runtime) = name.strip_prefix(SESSION_PREFIX) {
+            if let Ok(root) = cache_root() {
+                let _ = std::fs::remove_dir_all(root.join("sessions").join(runtime));
+            }
+        }
+        remove_state_file(&session_id);
+        state.sessions.lock().await.remove(&session_id);
+    }
+    let referenced: Vec<String> = state
+        .sessions
+        .lock()
+        .await
+        .values()
+        .filter_map(|session| session.name.strip_prefix(SESSION_PREFIX).map(str::to_owned))
+        .collect();
+    if let Ok(sessions_root) = cache_root().map(|root| root.join("sessions")) {
+        if let Ok(entries) = std::fs::read_dir(&sessions_root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Some(file_name) = entry.file_name().into_string().ok() else {
+                    continue;
+                };
+                if referenced.contains(&file_name) {
+                    continue;
+                }
+                if path.is_dir() {
+                    let _ = std::fs::remove_dir_all(&path);
+                } else {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn resolve_workdir(raw: Option<&str>) -> Result<PathBuf, ServerError> {
     let home = env::var_os("HOME").map(PathBuf::from).ok_or_else(|| {
         ServerError::message(
@@ -673,18 +955,50 @@ fn resolve_workdir(raw: Option<&str>) -> Result<PathBuf, ServerError> {
 }
 
 fn parse_exit_code(snapshot: &str) -> Option<i32> {
+    snapshot.lines().rev().find_map(|line| {
+        line.trim_start()
+            .strip_prefix(MARKER_PREFIX)?
+            .trim()
+            .parse()
+            .ok()
+    })
+}
+
+/// Count marker lines in the pane snapshot. A completion is only accepted when
+/// the count grows, so stale markers from previous commands cannot complete a
+/// follow-up command on the same session.
+fn count_markers(snapshot: &str) -> u32 {
     snapshot
         .lines()
-        .rev()
-        .find_map(|line| line.strip_prefix("__RIKKAHUB_EXIT__")?.trim().parse().ok())
+        .filter(|line| line.trim_start().starts_with(MARKER_PREFIX))
+        .count() as u32
 }
 
 fn strip_marker(output: &str) -> String {
     output
         .lines()
-        .filter(|line| !line.trim_start().starts_with("__RIKKAHUB_EXIT__"))
+        .filter(|line| !line.trim_start().starts_with(MARKER_PREFIX))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Return the part of `current` that was not part of `previous`. Falls back to
+/// a line-based diff when the plain prefix check fails, which happens when a
+/// follow-up command is typed onto the prompt line in place.
+fn snapshot_delta(previous: &str, current: &str) -> String {
+    if current.starts_with(previous) {
+        return current[previous.len()..].to_string();
+    }
+    let previous_lines: Vec<&str> = previous.lines().collect();
+    let current_lines: Vec<&str> = current.lines().collect();
+    let mut index = 0;
+    while index < previous_lines.len()
+        && index < current_lines.len()
+        && previous_lines[index] == current_lines[index]
+    {
+        index += 1;
+    }
+    current_lines[index..].join("\n")
 }
 
 fn limit_output(output: &str, max_chars: usize) -> String {
