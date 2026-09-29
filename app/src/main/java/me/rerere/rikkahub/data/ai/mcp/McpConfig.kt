@@ -5,12 +5,15 @@ import kotlinx.serialization.Serializable
 import me.rerere.ai.core.InputSchema
 import kotlin.uuid.Uuid
 
+internal const val MCP_TERMINAL_CARD_METADATA_KEY = "mcpTerminalCard"
+
 @Serializable
 data class McpCommonOptions(
     val enable: Boolean = true,
     val name: String = "",
     val skipStartupInitialization: Boolean = false,
     val disableToolNamePrefix: Boolean = false,
+    val terminalOutputEnabled: Boolean = false,
     val headers: List<Pair<String, String>> = emptyList(),
     val tools: List<McpTool> = emptyList(),
     val oauth: McpOAuthState? = null,

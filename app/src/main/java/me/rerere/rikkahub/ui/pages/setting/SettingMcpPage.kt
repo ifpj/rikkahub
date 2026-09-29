@@ -508,6 +508,7 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
         val disableToolNamePrefix = obj["disableToolNamePrefix"]?.jsonPrimitive?.booleanOrNull ?: false
         val skipStartupInitialization =
             obj["skipStartupInitialization"]?.jsonPrimitive?.booleanOrNull ?: false
+        val terminalOutputEnabled = obj["terminalOutputEnabled"]?.jsonPrimitive?.booleanOrNull ?: false
         val enable = obj["enable"]?.jsonPrimitive?.booleanOrNull ?: true
         val headers = obj["headers"]?.jsonObject?.entries?.map { (k, v) ->
             k to (v.jsonPrimitive.contentOrNull ?: "")
@@ -525,6 +526,7 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
             enable = enable,
             name = name,
             skipStartupInitialization = skipStartupInitialization,
+            terminalOutputEnabled = terminalOutputEnabled,
             disableToolNamePrefix = disableToolNamePrefix,
             headers = headers,
             tools = tools,
@@ -555,6 +557,9 @@ private fun buildMcpServersJson(configs: List<McpServerConfig>): String {
                     }
                     if (config.commonOptions.skipStartupInitialization) {
                         put("skipStartupInitialization", true)
+                    }
+                    if (config.commonOptions.terminalOutputEnabled) {
+                        put("terminalOutputEnabled", true)
                     }
                     if (config.commonOptions.disableToolNamePrefix) {
                         put("disableToolNamePrefix", true)

@@ -1,4 +1,4 @@
-use crate::{pty, ServerError};
+use crate::{pty, terminal_text::TerminalCleaner, ServerError};
 use serde_json::{json, Value};
 use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
 use tokio::{
@@ -37,6 +37,7 @@ struct SessionState {
     output: Vec<u8>,
     output_start: u64,
     cursor: u64,
+    cleaner: TerminalCleaner,
     timeout: Duration,
     last_active: Instant,
     exit_code: Option<i32>,
@@ -46,6 +47,7 @@ struct SessionState {
 struct PollResult {
     status: SessionStatus,
     output: String,
+    raw_output: String,
     truncated: bool,
     timed_out: bool,
 }
@@ -79,7 +81,36 @@ impl SessionManager {
         }
     }
 
-    pub async fn execute_command(&self, args: &Value) -> Result<String, ServerError> {
+    #[cfg(test)]
+    pub async fn insert_completed_test_session(&self, code: i32, output: &[u8]) -> Uuid {
+        let id = Uuid::new_v4();
+        self.sessions.lock().await.insert(
+            id,
+            Arc::new(Session {
+                state: Mutex::new(SessionState {
+                    pty: None,
+                    output: output.to_vec(),
+                    output_start: 0,
+                    cursor: 0,
+                    cleaner: TerminalCleaner::default(),
+                    timeout: Duration::from_secs(10),
+                    last_active: Instant::now(),
+                    exit_code: Some(code),
+                    timed_out: false,
+                }),
+                operation: Mutex::new(()),
+                changed: Notify::new(),
+                activity: Notify::new(),
+            }),
+        );
+        id
+    }
+
+    pub async fn execute_command_with_raw(
+        &self,
+        args: &Value,
+        include_raw: bool,
+    ) -> Result<String, ServerError> {
         let command = required_string(args, "command")?;
         if command.trim().is_empty() {
             return Err(ServerError::message("command must not be empty"));
@@ -100,6 +131,7 @@ impl SessionManager {
                 output: Vec::new(),
                 output_start: 0,
                 cursor: 0,
+                cleaner: TerminalCleaner::default(),
                 timeout: Duration::from_millis(timeout_ms),
                 last_active: Instant::now(),
                 exit_code: None,
@@ -152,10 +184,14 @@ impl SessionManager {
         tokio::spawn(async move { watch_idle(idle_session).await });
 
         let result = wait_for_output(&session, max_output, yield_ms).await;
-        Ok(format_session_result(session_id, result))
+        Ok(format_session_result(session_id, result, include_raw))
     }
 
-    pub async fn write_stdin(&self, args: &Value) -> Result<String, ServerError> {
+    pub async fn write_stdin_with_raw(
+        &self,
+        args: &Value,
+        include_raw: bool,
+    ) -> Result<String, ServerError> {
         let session_id = required_uuid(args, "session_id")?;
         let session = self
             .sessions
@@ -190,6 +226,7 @@ impl SessionManager {
             return Ok(format_session_result(
                 session_id,
                 session.poll(max_output).await,
+                include_raw,
             ));
         };
 
@@ -218,10 +255,10 @@ impl SessionManager {
         if args.get("terminate").and_then(Value::as_bool) == Some(true) {
             pty.terminate().map_err(ServerError::message)?;
             let result = wait_for_completion(&session, max_output, 2_000).await;
-            return Ok(format_session_result(session_id, result));
+            return Ok(format_session_result(session_id, result, include_raw));
         }
         let result = wait_for_output(&session, max_output, yield_ms).await;
-        Ok(format_session_result(session_id, result))
+        Ok(format_session_result(session_id, result, include_raw))
     }
 
     async fn handle_late_input(
@@ -300,8 +337,16 @@ impl Session {
                 Err(_) => bytes.len(),
             }
         };
-        let text = String::from_utf8_lossy(&bytes[..available]);
-        let (mut output, limited) = limit_output(&text, max_output);
+        let chunk = bytes[..available].to_vec();
+        let text = String::from_utf8_lossy(&chunk);
+        if lost {
+            state.cleaner = TerminalCleaner::default();
+        }
+        let finished = state.exit_code.is_some();
+        let raw_output = text.to_string();
+        let clean_output = state.cleaner.feed(&chunk, finished);
+        let (mut output, limited) = limit_output(&clean_output, max_output);
+        let (raw_output, raw_limited) = limit_output(&raw_output, max_output);
         if lost {
             output.insert_str(0, "[earlier terminal output discarded]\n");
         }
@@ -313,7 +358,8 @@ impl Session {
                 .map(SessionStatus::Completed)
                 .unwrap_or(SessionStatus::Running),
             output,
-            truncated: lost || limited,
+            raw_output,
+            truncated: lost || limited || raw_limited,
             timed_out: state.timed_out,
         };
         let running = result.status == SessionStatus::Running;
@@ -335,6 +381,7 @@ async fn wait_for_output(session: &Arc<Session>, max_output: usize, yield_ms: u6
         let result = session.poll(max_output).await;
         if result.status != SessionStatus::Running
             || !result.output.is_empty()
+            || !result.raw_output.is_empty()
             || Instant::now() >= deadline
         {
             return result;
@@ -396,7 +443,7 @@ async fn watch_idle(session: Arc<Session>) {
     }
 }
 
-fn format_session_result(session_id: Uuid, result: PollResult) -> String {
+fn format_session_result(session_id: Uuid, result: PollResult, include_raw: bool) -> String {
     let (status, exit_code) = match result.status {
         SessionStatus::Running => ("running", None),
         SessionStatus::Completed(code) => ("completed", Some(code)),
@@ -408,6 +455,9 @@ fn format_session_result(session_id: Uuid, result: PollResult) -> String {
         "stderr": "",
         "pty": true,
     });
+    if include_raw {
+        value["raw_stdout"] = json!(result.raw_output);
+    }
     if let Some(code) = exit_code {
         value["exit_code"] = json!(code);
         if result.timed_out {
@@ -532,26 +582,7 @@ mod tests {
     use super::*;
 
     async fn completed_session(manager: &SessionManager, code: i32) -> Uuid {
-        let id = Uuid::new_v4();
-        manager.sessions.lock().await.insert(
-            id,
-            Arc::new(Session {
-                state: Mutex::new(SessionState {
-                    pty: None,
-                    output: Vec::new(),
-                    output_start: 0,
-                    cursor: 0,
-                    timeout: Duration::from_secs(10),
-                    last_active: Instant::now(),
-                    exit_code: Some(code),
-                    timed_out: false,
-                }),
-                operation: Mutex::new(()),
-                changed: Notify::new(),
-                activity: Notify::new(),
-            }),
-        );
-        id
+        manager.insert_completed_test_session(code, b"").await
     }
 
     #[tokio::test]
@@ -559,15 +590,21 @@ mod tests {
         let manager = SessionManager::default();
         let id = completed_session(&manager, 137).await;
         let args = json!({"session_id": id.to_string(), "interrupt": true, "terminate": true, "chars": ""});
-        let first = manager.write_stdin(&args).await.unwrap();
-        assert_eq!(first, manager.write_stdin(&args).await.unwrap());
+        let first = manager.write_stdin_with_raw(&args, false).await.unwrap();
+        assert_eq!(
+            first,
+            manager.write_stdin_with_raw(&args, false).await.unwrap()
+        );
         assert_eq!(
             serde_json::from_str::<Value>(&first).unwrap()["exit_code"],
             137
         );
         assert_eq!(
             manager
-                .write_stdin(&json!({"session_id": id.to_string(), "chars": "echo unsafe"}))
+                .write_stdin_with_raw(
+                    &json!({"session_id": id.to_string(), "chars": "echo unsafe"}),
+                    false
+                )
                 .await
                 .unwrap_err()
                 .0,
@@ -606,6 +643,7 @@ mod tests {
                 output: Vec::new(),
                 output_start: 0,
                 cursor: 0,
+                cleaner: TerminalCleaner::default(),
                 timeout: Duration::from_secs(10),
                 last_active: Instant::now(),
                 exit_code: None,
@@ -622,16 +660,86 @@ mod tests {
         assert_eq!(session.poll(DEFAULT_MAX_OUTPUT).await.output, "你好");
     }
 
+    #[tokio::test]
+    async fn raw_only_progress_is_returned_without_losing_the_delta() {
+        let session = Arc::new(Session {
+            state: Mutex::new(SessionState {
+                pty: None,
+                output: b"10%\r".to_vec(),
+                output_start: 0,
+                cursor: 0,
+                cleaner: TerminalCleaner::default(),
+                timeout: Duration::from_secs(10),
+                last_active: Instant::now(),
+                exit_code: None,
+                timed_out: false,
+            }),
+            operation: Mutex::new(()),
+            changed: Notify::new(),
+            activity: Notify::new(),
+        });
+        let result = timeout(
+            Duration::from_millis(100),
+            wait_for_output(&session, DEFAULT_MAX_OUTPUT, 30_000),
+        )
+        .await
+        .expect("raw progress should return without waiting for the full yield");
+        assert_eq!(result.output, "");
+        assert_eq!(result.raw_output, "10%\r");
+    }
+
+    #[tokio::test]
+    async fn raw_and_clean_output_share_one_incremental_read() {
+        let manager = SessionManager::default();
+        let id = completed_session(&manager, 0).await;
+        let session = manager.sessions.lock().await.get(&id).unwrap().clone();
+        session.append_output(b"\x1b[31mred\x1b[0m\rblue\n").await;
+
+        let first: Value = serde_json::from_str(
+            &manager
+                .write_stdin_with_raw(&json!({ "session_id": id.to_string() }), true)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(first["stdout"], "blue\n");
+        assert_eq!(first["raw_stdout"], "\u{1b}[31mred\u{1b}[0m\rblue\n");
+
+        let second: Value = serde_json::from_str(
+            &manager
+                .write_stdin_with_raw(&json!({ "session_id": id.to_string() }), true)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(second["stdout"], "");
+        assert_eq!(second["raw_stdout"], "");
+
+        session.append_output(b"\x1b[32mnext\x1b[0m\n").await;
+        let without_raw: Value = serde_json::from_str(
+            &manager
+                .write_stdin_with_raw(&json!({ "session_id": id.to_string() }), false)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(without_raw["stdout"], "next\n");
+        assert!(without_raw.get("raw_stdout").is_none());
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn pty_command_streams_and_accepts_input() {
         let manager = SessionManager::default();
         let started: Value = serde_json::from_str(
             &manager
-                .execute_command(&json!({
-                    "command": "printf ready; read answer; printf ' got:%s' \"$answer\"",
-                    "yield_time_ms": 1000,
-                }))
+                .execute_command_with_raw(
+                    &json!({
+                        "command": "printf ready; read answer; printf ' got:%s' \"$answer\"",
+                        "yield_time_ms": 1000,
+                    }),
+                    false,
+                )
                 .await
                 .unwrap(),
         )
@@ -641,11 +749,14 @@ mod tests {
         let id = started["session_id"].as_str().unwrap();
         let finished: Value = serde_json::from_str(
             &manager
-                .write_stdin(&json!({
-                    "session_id": id,
-                    "chars": "hello\n",
-                    "yield_time_ms": 1000,
-                }))
+                .write_stdin_with_raw(
+                    &json!({
+                        "session_id": id,
+                        "chars": "hello\n",
+                        "yield_time_ms": 1000,
+                    }),
+                    false,
+                )
                 .await
                 .unwrap(),
         )
