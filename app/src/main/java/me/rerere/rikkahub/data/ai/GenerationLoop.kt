@@ -64,6 +64,20 @@ private const val INITIAL_PROVIDER_RETRY_DELAY_MS = 1_000L
 
 private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(cause)
 
+internal fun List<UIMessage>.withToolDisplayMetadata(
+    metadataByToolName: Map<String, JsonObject>,
+): List<UIMessage> {
+    if (metadataByToolName.isEmpty()) return this
+    val current = lastOrNull() ?: return this
+    val updatedParts = current.parts.map { part ->
+        if (part !is UIMessagePart.Tool) return@map part
+        val displayMetadata = metadataByToolName[part.toolName] ?: return@map part
+        val merged = JsonObject(part.metadata.orEmpty() + displayMetadata)
+        if (merged == part.metadata) part else part.copy(metadata = merged)
+    }
+    return if (updatedParts == current.parts) this else dropLast(1) + current.copy(parts = updatedParts)
+}
+
 @Serializable
 sealed interface GenerationChunk {
     data class Messages(
@@ -95,6 +109,9 @@ class GenerationLoop(
     ): Flow<GenerationChunk> = flow {
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
+        val displayMetadataByToolName = tools.mapNotNull { tool ->
+            tool.displayMetadata?.let { tool.name to it }
+        }.toMap()
 
         var messages: List<UIMessage> = messages
 
@@ -121,7 +138,7 @@ class GenerationLoop(
                             model = model,
                             assistant = assistant,
                             settings = settings
-                        )
+                        ).withToolDisplayMetadata(displayMetadataByToolName)
                         emit(
                             GenerationChunk.Messages(
                                 messages.visualTransforms(
@@ -130,7 +147,7 @@ class GenerationLoop(
                                     model = model,
                                     assistant = assistant,
                                     settings = settings
-                                )
+                                ).withToolDisplayMetadata(displayMetadataByToolName)
                             )
                         )
                     },
@@ -161,7 +178,7 @@ class GenerationLoop(
                     model = model,
                     assistant = assistant,
                     settings = settings
-                )
+                ).withToolDisplayMetadata(displayMetadataByToolName)
                 messages = messages.slice(0 until messages.lastIndex) + messages.last().copy(
                     finishedAt = Clock.System.now()
                         .toLocalDateTime(TimeZone.currentSystemDefault())

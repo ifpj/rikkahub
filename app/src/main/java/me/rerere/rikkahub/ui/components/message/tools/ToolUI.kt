@@ -21,8 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.hugeicons.HugeIcons
@@ -117,10 +117,14 @@ object ToolUIRegistry {
     fun resolve(toolName: String): ToolUIRenderer = renderers[toolName] ?: DefaultToolUIRenderer
 
     fun resolve(tool: UIMessagePart.Tool): ToolUIRenderer {
-        val terminalCard = tool.output.filterIsInstance<UIMessagePart.Text>().any { part ->
+        val markedAtCallStart = tool.metadata
+            ?.get(MCP_TERMINAL_CARD_METADATA_KEY)
+            ?.jsonPrimitiveOrNull
+            ?.booleanOrNull == true
+        val markedInOutput = tool.output.filterIsInstance<UIMessagePart.Text>().any { part ->
             part.metadata?.get(MCP_TERMINAL_CARD_METADATA_KEY)?.jsonPrimitiveOrNull?.booleanOrNull == true
         }
-        return if (terminalCard) ShellToolUI else resolve(tool.toolName)
+        return if (markedAtCallStart || markedInOutput) ShellToolUI else resolve(tool.toolName)
     }
 }
 

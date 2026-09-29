@@ -18,6 +18,8 @@ data class Tool(
     val execute: suspend (JsonElement) -> List<UIMessagePart>,
     /** Returns the next output snapshot, or null when this tool no longer needs automatic continuation. */
     val continueExecution: (suspend (List<UIMessagePart>) -> List<UIMessagePart>?)? = null,
+    /** UI-only metadata copied onto tool calls; not included in provider tool definitions. */
+    val displayMetadata: JsonObject? = null,
 )
 
 @Serializable

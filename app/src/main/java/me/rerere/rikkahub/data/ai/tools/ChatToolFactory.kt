@@ -2,10 +2,13 @@ package me.rerere.rikkahub.data.ai.tools
 
 import android.util.Log
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
+import me.rerere.rikkahub.data.ai.mcp.MCP_TERMINAL_CARD_METADATA_KEY
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
@@ -107,6 +110,11 @@ class ChatToolFactory(
                     description = tool.description ?: "",
                     parameters = { tool.inputSchema },
                     needsApproval = { tool.needsApproval },
+                    displayMetadata = if (server.commonOptions.terminalOutputEnabled) {
+                        buildJsonObject { put(MCP_TERMINAL_CARD_METADATA_KEY, true) }
+                    } else {
+                        null
+                    },
                     execute = {
                         mcpManager.callTool(
                             server.id,
