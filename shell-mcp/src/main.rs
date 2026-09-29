@@ -33,7 +33,7 @@ use std::{
 use tokio::{process::Command, sync::Mutex, time::sleep};
 use uuid::Uuid;
 
-const SERVER_VERSION: &str = "0.2.0";
+const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_YIELD_MS: u64 = 1_000;
 const MAX_YIELD_MS: u64 = 30_000;
 const DEFAULT_TIMEOUT_MS: u64 = 10 * 60 * 1_000;
@@ -42,42 +42,38 @@ const WATCHER_TICK_MS: u64 = 1_000;
 const HISTORY_LIMIT: &str = "50000";
 const SESSION_IDLE_TTL_MS: u64 = 30 * 60 * 1_000;
 const GC_INTERVAL_MS: u64 = 10 * 60 * 1_000;
-const MARKER_PREFIX: &str = "__RIKKAHUB_EXIT__";
+const MARKER_PREFIX: &str = "__SHELL_MCP_EXIT__";
 const DEFAULT_MAX_OUTPUT: usize = 12_000;
 const MAX_OUTPUT: usize = 64_000;
 const DEFAULT_ROWS: u16 = 24;
 const DEFAULT_COLUMNS: u16 = 120;
-const SESSION_PREFIX: &str = "rikkahub-";
+const SESSION_PREFIX: &str = "shell-mcp-";
 
 #[derive(Debug, Parser, Clone)]
 #[command(
-    name = "rikkahub-shell-mcp",
+    name = "shell-mcp",
     version,
     about = "Interactive HTTP shell MCP server"
 )]
 struct Args {
     /// Address to listen on. Keep this on localhost for security.
-    #[arg(long, env = "RIKKAHUB_SHELL_MCP_BIND", default_value = "127.0.0.1")]
+    #[arg(long, env = "SHELL_MCP_BIND", default_value = "127.0.0.1")]
     bind: String,
 
     /// HTTP port used by the MCP endpoint.
-    #[arg(long, env = "RIKKAHUB_SHELL_MCP_PORT", default_value_t = 38741)]
+    #[arg(long, env = "SHELL_MCP_PORT", default_value_t = 38741)]
     port: u16,
 
-    /// Bearer token required by RikkaHub. If omitted, the server accepts local requests without authentication.
-    #[arg(long, env = "RIKKAHUB_SHELL_MCP_TOKEN")]
+    /// Bearer token required by MCP clients. If omitted, local requests are unauthenticated.
+    #[arg(long, env = "SHELL_MCP_TOKEN")]
     token: Option<String>,
 
-    /// tmux executable. Useful when Termux uses a non-standard installation.
-    #[arg(long, env = "RIKKAHUB_SHELL_MCP_TMUX", default_value = "tmux")]
+    /// tmux executable. Useful when tmux uses a non-standard installation.
+    #[arg(long, env = "SHELL_MCP_TMUX", default_value = "tmux")]
     tmux: String,
 
-    /// Dedicated tmux socket name so RikkaHub sessions do not collide with user sessions.
-    #[arg(
-        long,
-        env = "RIKKAHUB_SHELL_MCP_TMUX_SOCKET",
-        default_value = "rikkahub"
-    )]
+    /// Dedicated tmux socket name so MCP sessions do not collide with user sessions.
+    #[arg(long, env = "SHELL_MCP_TMUX_SOCKET", default_value = "shell-mcp")]
     tmux_socket: String,
 }
 
@@ -131,15 +127,15 @@ impl IntoResponse for ServerError {
 }
 
 #[derive(Clone)]
-struct TermuxMcpServer {
+struct ShellMcpServer {
     state: AppState,
 }
 
-impl ServerHandler for TermuxMcpServer {
+impl ServerHandler for ShellMcpServer {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_protocol_version(ProtocolVersion::V_2024_11_05)
-            .with_server_info(Implementation::new("rikkahub-shell-mcp", SERVER_VERSION))
+            .with_server_info(Implementation::new("shell-mcp", SERVER_VERSION))
     }
 
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
@@ -230,10 +226,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let router = build_router(state);
     let address = SocketAddr::new(bind, args.port);
-    println!("rikkahub-shell-mcp listening on http://{address}/mcp");
-    if let Some(token) = env::var_os("RIKKAHUB_SHELL_MCP_TOKEN") {
+    println!("shell-mcp listening on http://{address}/mcp");
+    if let Some(token) = env::var_os("SHELL_MCP_TOKEN") {
         if token.is_empty() {
-            eprintln!("warning: RIKKAHUB_SHELL_MCP_TOKEN is empty");
+            eprintln!("warning: SHELL_MCP_TOKEN is empty");
         }
     }
 
@@ -246,7 +242,7 @@ fn build_router(state: AppState) -> Router {
     let mcp_state = state.clone();
     let mcp_service = StreamableHttpService::new(
         move || {
-            Ok(TermuxMcpServer {
+            Ok(ShellMcpServer {
                 state: mcp_state.clone(),
             })
         },
@@ -268,7 +264,7 @@ fn build_router(state: AppState) -> Router {
 async fn health() -> Response {
     Json(json!({
         "ok": true,
-        "server": "rikkahub-shell-mcp",
+        "server": "shell-mcp",
         "version": SERVER_VERSION,
     }))
     .into_response()
@@ -282,7 +278,7 @@ fn exec_command_tool() -> Tool {
             "type": "object",
             "properties": {
                 "command": { "type": "string", "description": "Shell command to run" },
-                "workdir": { "type": "string", "description": "Working directory. Defaults to the Termux home directory." },
+                "workdir": { "type": "string", "description": "Working directory. Defaults to the host user's home directory." },
                 "timeout_ms": { "type": "integer", "description": "Idle timeout in milliseconds. Renewed by every poll or write_stdin call, so an actively used session never times out. Defaults to 600000." },
                 "yield_time_ms": { "type": "integer", "description": "How long to wait before returning output. Defaults to 1000." },
                 "max_output_chars": { "type": "integer", "description": "Maximum output characters returned to the model. Defaults to 12000." },
@@ -357,7 +353,7 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
             rows.to_string(),
             // tmux may start fish (or another user-selected shell). Replace
             // it once so the persistent session and all later commands use
-            // Bash while inheriting Termux's original environment.
+            // Bash while inheriting the host shell's environment.
             "exec bash".into(),
         ],
     )
@@ -820,7 +816,7 @@ fn session_dir(runtime_id: Uuid) -> Result<PathBuf, ServerError> {
     })?;
     Ok(home
         .join(".cache")
-        .join("rikkahub-shell-mcp")
+        .join("shell-mcp")
         .join("sessions")
         .join(runtime_id.to_string()))
 }
@@ -838,7 +834,7 @@ fn cache_root() -> Result<PathBuf, ServerError> {
             "HOME is not set; start the MCP server from the host shell environment",
         )
     })?;
-    Ok(home.join(".cache").join("rikkahub-shell-mcp"))
+    Ok(home.join(".cache").join("shell-mcp"))
 }
 
 fn state_dir() -> Result<PathBuf, ServerError> {
@@ -1060,18 +1056,18 @@ fn shell_quote(path: &std::path::Path) -> String {
 }
 
 fn marker_tail_command(marker: Uuid) -> String {
-    format!("__rikkahub_exit=$?; {}", print_marker_command(marker))
+    format!("__shell_mcp_exit=$?; {}", print_marker_command(marker))
 }
 
 fn print_marker_command(marker: Uuid) -> String {
-    format!("printf '\\n{MARKER_PREFIX}{marker}:%s\\n' \"$__rikkahub_exit\"")
+    format!("printf '\\n{MARKER_PREFIX}{marker}:%s\\n' \"$__shell_mcp_exit\"")
 }
 
 fn followup_launch(script_path: &std::path::Path, marker: Uuid) -> String {
     // A conditional keeps Bash from exiting on a failing sourced command,
     // while sourcing preserves cwd and environment in the persistent shell.
     format!(
-        "if . {}; then __rikkahub_exit=0; else __rikkahub_exit=$?; fi; {}",
+        "if . {}; then __shell_mcp_exit=0; else __shell_mcp_exit=$?; fi; {}",
         shell_quote(script_path),
         print_marker_command(marker)
     )
@@ -1234,12 +1230,7 @@ fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), Box<Response>>
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
-    let supplied = bearer.or_else(|| {
-        headers
-            .get("x-rikkahub-token")
-            .and_then(|v| v.to_str().ok())
-    });
-    if supplied != Some(expected) {
+    if bearer != Some(expected) {
         Err(Box::new(
             (
                 StatusCode::UNAUTHORIZED,
@@ -1341,6 +1332,22 @@ mod tests {
             }),
             sessions: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    #[test]
+    fn bearer_token_auth_is_client_independent() {
+        let state = AppState {
+            config: Arc::new(Config {
+                token: Some("secret".into()),
+                tmux: "tmux".into(),
+                tmux_socket: "test".into(),
+            }),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+        };
+        let mut headers = HeaderMap::new();
+        assert!(authorize(&state, &headers).is_err());
+        headers.insert(header::AUTHORIZATION, "Bearer secret".parse().unwrap());
+        assert!(authorize(&state, &headers).is_ok());
     }
 
     async fn send_request(router: Router, request: Request<Body>) -> (HeaderMap, Value) {
@@ -1445,6 +1452,8 @@ mod tests {
         let router = test_router();
         let (headers, response) = send_request(router.clone(), request).await;
         assert_eq!(response["result"]["protocolVersion"], "2025-11-25");
+        assert_eq!(response["result"]["serverInfo"]["name"], "shell-mcp");
+        assert_eq!(response["result"]["serverInfo"]["version"], SERVER_VERSION);
         let mcp_session_id = headers.get("mcp-session-id").unwrap().to_str().unwrap();
         let initialized = Request::builder()
             .method("POST")
