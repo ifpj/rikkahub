@@ -5,8 +5,14 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
 import java.net.InetSocketAddress
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPOutputStream
 
 class ExampleUnitTest {
@@ -241,6 +247,60 @@ class ExampleUnitTest {
         val emptyDelta = manager.waitCommandSession(root, sessionId, yieldMillis = 0)
         assertEquals(WorkspaceShellSessionStatus.COMPLETED, emptyDelta.status)
         assertEquals("", emptyDelta.stdout)
+    }
+
+    @Test
+    fun completedSessionCanBeInterruptedAndTerminatedRepeatedly() {
+        val baseDir = Files.createTempDirectory("workspace-session-idempotent-test").toFile()
+        val output = PipedOutputStream()
+        val finished = CountDownLatch(1)
+        val backend = object : WorkspaceProcessBackend {
+            override val stdoutStream: InputStream = PipedInputStream(output)
+            override val stderrStream: InputStream? = null
+            override val stdinStream: OutputStream = ByteArrayOutputStream()
+            override val isAlive: Boolean get() = finished.count > 0
+            override val usesPty: Boolean = true
+            override fun waitFor(timeoutMillis: Long): Boolean =
+                finished.await(timeoutMillis, TimeUnit.MILLISECONDS)
+            override fun waitFor() { finished.await() }
+            override fun exitCode(): Int = 0
+            override fun closeStdin() = Unit
+            override fun interrupt(): Unit = error("already-completed process must not be interrupted")
+            override fun resizeTerminal(rows: Int, columns: Int) = Unit
+            override fun terminate(): Unit = error("already-completed process must not be terminated")
+        }
+        val runner = object : WorkspaceShellRunner {
+            override fun start(context: WorkspaceShellContext): WorkspaceShellProcess =
+                WorkspaceShellProcess.start(backend, context.timeoutMillis)
+        }
+        val manager = WorkspaceManager(baseDir, shellRunner = runner)
+        val root = "test-workspace"
+        manager.ensureWorkspace(root)
+
+        val started = manager.startCommandSession(root, "unused", yieldMillis = 0)
+        assertEquals(WorkspaceShellSessionStatus.RUNNING, started.status)
+        val sessionId = requireNotNull(started.sessionId)
+        output.write("finished".toByteArray())
+        output.close()
+        finished.countDown()
+
+        val first = manager.updateCommandSession(
+            root, sessionId, interrupt = true, terminate = true, yieldMillis = 0,
+        )
+        assertEquals(WorkspaceShellSessionStatus.COMPLETED, first.status)
+        assertEquals(0, first.exitCode)
+        assertEquals("finished", first.stdout)
+
+        val second = manager.updateCommandSession(
+            root, sessionId, interrupt = true, terminate = true, yieldMillis = 0,
+        )
+        assertEquals(first.status, second.status)
+        assertEquals(first.exitCode, second.exitCode)
+        assertEquals("", second.stdout)
+
+        val polled = manager.updateCommandSession(root, sessionId, stdin = ByteArray(0), yieldMillis = 0)
+        assertEquals(WorkspaceShellSessionStatus.COMPLETED, polled.status)
+        assertEquals(first.exitCode, polled.exitCode)
     }
 
     @Test
