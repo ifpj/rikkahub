@@ -22,7 +22,12 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    borrow::Cow, collections::HashMap, env, net::SocketAddr, path::PathBuf, sync::Arc,
+    borrow::Cow,
+    collections::HashMap,
+    env,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{process::Command, sync::Mutex, time::sleep};
@@ -38,8 +43,6 @@ const HISTORY_LIMIT: &str = "50000";
 const SESSION_IDLE_TTL_MS: u64 = 30 * 60 * 1_000;
 const GC_INTERVAL_MS: u64 = 10 * 60 * 1_000;
 const MARKER_PREFIX: &str = "__RIKKAHUB_EXIT__";
-const MARKER_TAIL_COMMAND: &str =
-    "__rikkahub_exit=$?; printf '\\n__RIKKAHUB_EXIT__%s\\n' \"$__rikkahub_exit\"";
 const DEFAULT_MAX_OUTPUT: usize = 12_000;
 const MAX_OUTPUT: usize = 64_000;
 const DEFAULT_ROWS: u16 = 24;
@@ -101,10 +104,11 @@ struct SessionState {
     exit_code: Option<i32>,
     #[serde(default)]
     timed_out: bool,
-    #[serde(default)]
-    markers_seen: u32,
+    current_marker: Uuid,
     #[serde(skip)]
     last_snapshot: String,
+    #[serde(skip)]
+    operation_lock: Arc<Mutex<()>>,
 }
 
 #[derive(Debug)]
@@ -210,16 +214,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
         sessions: Arc::new(Mutex::new(restored)),
     };
-    let unfinished: Vec<Uuid> = state
+    let unfinished: Vec<(Uuid, Uuid)> = state
         .sessions
         .lock()
         .await
         .iter()
         .filter(|(_, session)| session.exit_code.is_none())
-        .map(|(session_id, _)| *session_id)
+        .map(|(session_id, session)| (*session_id, session.current_marker))
         .collect();
-    for session_id in unfinished {
-        spawn_timeout_watcher(state.clone(), session_id);
+    for (session_id, current_marker) in unfinished {
+        spawn_timeout_watcher(state.clone(), session_id, current_marker);
     }
     spawn_gc(state.clone());
     let _ = gc_once(&state).await;
@@ -369,22 +373,26 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
         ],
     )
     .await?;
+    let current_marker = Uuid::new_v4();
     let launch = format!(
-        "bash -- '{}' ; {}",
-        script_path.to_string_lossy(),
-        MARKER_TAIL_COMMAND
+        "bash -- {} ; {}",
+        shell_quote(&script_path),
+        marker_tail_command(current_marker)
     );
     send_literal(state, &session_name, &launch).await?;
     send_key(state, &session_name, "Enter").await?;
 
+    let operation_lock = Arc::new(Mutex::new(()));
+    let _operation_guard = operation_lock.lock().await;
     let session_state = SessionState {
         name: session_name.clone(),
         timeout_ms,
         last_active_ms: now_ms(),
         exit_code: None,
         timed_out: false,
-        markers_seen: 0,
+        current_marker,
         last_snapshot: String::new(),
+        operation_lock: operation_lock.clone(),
     };
     state
         .sessions
@@ -392,7 +400,7 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
         .await
         .insert(session_id, session_state.clone());
     persist_session(&session_id, &session_state);
-    spawn_timeout_watcher(state.clone(), session_id);
+    spawn_timeout_watcher(state.clone(), session_id, current_marker);
 
     sleep(Duration::from_millis(yield_ms)).await;
     let output = poll_session(state, session_id, max_output).await?;
@@ -401,11 +409,23 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
 
 async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerError> {
     let session_id = required_uuid(args, "session_id")?;
-    let state_entry = ensure_session(state, session_id).await?;
+    let operation_lock = session_operation_lock(state, session_id).await?;
+    let _operation_guard = operation_lock.lock().await;
+    let mut state_entry = ensure_session(state, session_id).await?;
     let name = state_entry.name.clone();
     let max_output = bounded_usize(args, "max_output_chars", DEFAULT_MAX_OUTPUT, MAX_OUTPUT);
     let yield_ms = bounded_u64(args, "yield_time_ms", DEFAULT_YIELD_MS, MAX_YIELD_MS);
     let chars = args.get("chars").and_then(Value::as_str);
+    if chars.is_some_and(|chars| !chars.trim().is_empty()) && state_entry.exit_code.is_none() {
+        // A command may have finished after the preceding poll. Refresh its
+        // completion before deciding whether chars are stdin or a new command.
+        let snapshot = capture_pane(state, &name).await?;
+        if let Some(code) = parse_exit_code(&snapshot, state_entry.current_marker) {
+            update_exit_status(state, session_id, code, false).await;
+            state_entry.exit_code = Some(code);
+        }
+    }
+    touch_session(state, &session_id).await;
 
     if args.get("rows").is_some() || args.get("columns").is_some() {
         let rows = args
@@ -424,16 +444,18 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
             // command at the persistent shell prompt. Wrap it with its own
             // exit-code marker so follow-up commands report their own status
             // instead of inheriting the stale marker of the previous command.
-            send_new_command(state, &name, chars).await?;
+            let current_marker = Uuid::new_v4();
+            send_new_command(state, &name, chars, current_marker).await?;
             let mut sessions = state.sessions.lock().await;
             if let Some(entry) = sessions.get_mut(&session_id) {
                 entry.exit_code = None;
                 entry.timed_out = false;
+                entry.current_marker = current_marker;
                 entry.last_active_ms = now_ms();
                 let updated = entry.clone();
                 drop(sessions);
                 persist_session(&session_id, &updated);
-                spawn_timeout_watcher(state.clone(), session_id);
+                spawn_timeout_watcher(state.clone(), session_id, current_marker);
             }
         } else {
             send_text(state, &name, chars).await?;
@@ -479,19 +501,22 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
         ));
     }
 
-    touch_session(state, &session_id).await;
     sleep(Duration::from_millis(yield_ms)).await;
     let output = poll_session(state, session_id, max_output).await?;
     Ok(format_session_result(session_id, output))
 }
 
-fn spawn_timeout_watcher(state: AppState, session_id: Uuid) {
+fn spawn_timeout_watcher(state: AppState, session_id: Uuid, current_marker: Uuid) {
     tokio::spawn(async move {
         loop {
             sleep(Duration::from_millis(WATCHER_TICK_MS)).await;
+            let Ok(operation_lock) = session_operation_lock(&state, session_id).await else {
+                return;
+            };
+            let _operation_guard = operation_lock.lock().await;
             let session = state.sessions.lock().await.get(&session_id).cloned();
             let Some(session) = session else { return };
-            if session.exit_code.is_some() {
+            if session.current_marker != current_marker || session.exit_code.is_some() {
                 // The command already finished; the GC task reaps idle sessions.
                 return;
             }
@@ -499,27 +524,27 @@ fn spawn_timeout_watcher(state: AppState, session_id: Uuid) {
                 continue;
             }
             if has_session(&state, &session.name).await {
-                let _ = kill_session(&state, &session.name).await;
-            }
-            let mut updated = None;
-            {
-                let mut sessions = state.sessions.lock().await;
-                if let Some(entry) = sessions.get_mut(&session_id) {
-                    if entry.exit_code.is_none() {
-                        entry.exit_code = Some(124);
-                        entry.timed_out = true;
+                if let Ok(snapshot) = capture_pane(&state, &session.name).await {
+                    if let Some(code) = parse_exit_code(&snapshot, current_marker) {
+                        update_exit_status(&state, session_id, code, false).await;
+                        return;
                     }
-                    updated = Some(entry.clone());
                 }
-            }
-            if let Some(updated) = updated {
-                persist_session(&session_id, &updated);
+                if let Err(error) = kill_session(&state, &session.name).await {
+                    eprintln!("cannot time out shell session {session_id}: {}", error.0);
+                    continue;
+                }
+                update_exit_status(&state, session_id, 124, true).await;
+            } else {
+                update_exit_status(&state, session_id, 1, false).await;
             }
             return;
         }
     });
 }
 
+/// The caller holds this session's operation_lock while reading and updating
+/// the pane cursor, so concurrent polls cannot duplicate or skip output.
 async fn poll_session(
     state: &AppState,
     session_id: Uuid,
@@ -550,20 +575,16 @@ async fn poll_session(
     }
     let snapshot = capture_pane(state, &session.name).await?;
     let delta = snapshot_delta(&session.last_snapshot, &snapshot);
-    let marker_count = count_markers(&snapshot);
-    let last_marker = parse_exit_code(&snapshot);
+    let completion = parse_exit_code(&snapshot, session.current_marker);
     let mut refreshed = None;
     {
         let mut sessions = state.sessions.lock().await;
         if let Some(entry) = sessions.get_mut(&session_id) {
             entry.last_active_ms = now_ms();
             entry.last_snapshot = snapshot;
-            if marker_count > entry.markers_seen {
-                entry.markers_seen = marker_count;
-                if let Some(code) = last_marker {
-                    entry.exit_code = Some(code);
-                    entry.timed_out = false;
-                }
+            if let Some(code) = completion {
+                entry.exit_code = Some(code);
+                entry.timed_out = false;
             }
             refreshed = Some(entry.clone());
         }
@@ -631,6 +652,19 @@ async fn ensure_session(state: &AppState, session_id: Uuid) -> Result<SessionSta
         )));
     }
     Ok(session)
+}
+
+async fn session_operation_lock(
+    state: &AppState,
+    session_id: Uuid,
+) -> Result<Arc<Mutex<()>>, ServerError> {
+    state
+        .sessions
+        .lock()
+        .await
+        .get(&session_id)
+        .map(|session| session.operation_lock.clone())
+        .ok_or_else(|| ServerError::message(format!("Shell session {session_id} is not known")))
 }
 
 async fn tmux<I>(state: &AppState, args: I) -> Result<std::process::Output, ServerError>
@@ -719,21 +753,19 @@ async fn send_new_command(
     state: &AppState,
     name: &str,
     text: &str,
+    marker: Uuid,
 ) -> Result<(), ServerError> {
-    let trimmed = text.trim_end_matches('\n');
-    let mut lines: Vec<&str> = trimmed.split('\n').collect();
-    let last = lines.pop().unwrap_or_default();
-    for line in lines {
-        if !line.is_empty() {
-            send_literal(state, name, line).await?;
-        }
-        send_key(state, name, "Enter").await?;
-    }
-    if !last.is_empty() {
-        send_literal(state, name, last).await?;
-        send_key(state, name, "Enter").await?;
-    }
-    send_literal(state, name, MARKER_TAIL_COMMAND).await?;
+    let runtime_id = name
+        .strip_prefix(SESSION_PREFIX)
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .ok_or_else(|| ServerError::message("invalid tmux session name"))?;
+    let script_path = session_dir(runtime_id)?.join("command.sh");
+    std::fs::write(&script_path, format!("{text}\n"))
+        .map_err(|error| ServerError::message(format!("cannot write command script: {error}")))?;
+    // Send one shell line. A separate marker line could be consumed as stdin
+    // by a command such as read, leaving the session stuck in running state.
+    let launch = followup_launch(&script_path, marker);
+    send_literal(state, name, &launch).await?;
     send_key(state, name, "Enter").await?;
     Ok(())
 }
@@ -817,11 +849,26 @@ fn persist_session(session_id: &Uuid, session: &SessionState) {
     let Ok(dir) = state_dir() else {
         return;
     };
-    if std::fs::create_dir_all(&dir).is_err() {
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        eprintln!("cannot create shell state directory: {error}");
         return;
     }
     if let Ok(text) = serde_json::to_string(session) {
-        let _ = std::fs::write(dir.join(format!("{session_id}.json")), text);
+        let path = dir.join(format!("{session_id}.json"));
+        let temporary = dir.join(format!(".{session_id}.{}.tmp", Uuid::new_v4()));
+        let result = std::fs::write(&temporary, text).and_then(|_| {
+            let rename = std::fs::rename(&temporary, &path);
+            #[cfg(windows)]
+            let rename = rename.or_else(|_| {
+                let _ = std::fs::remove_file(&path);
+                std::fs::rename(&temporary, &path)
+            });
+            rename
+        });
+        if let Err(error) = result {
+            eprintln!("cannot persist shell session {session_id}: {error}");
+            let _ = std::fs::remove_file(temporary);
+        }
     }
 }
 
@@ -870,6 +917,18 @@ async fn touch_session(state: &AppState, session_id: &Uuid) {
     }
 }
 
+async fn update_exit_status(state: &AppState, session_id: Uuid, code: i32, timed_out: bool) {
+    let mut sessions = state.sessions.lock().await;
+    if let Some(entry) = sessions.get_mut(&session_id) {
+        entry.exit_code = Some(code);
+        entry.timed_out = timed_out;
+        entry.last_active_ms = now_ms();
+        let updated = entry.clone();
+        drop(sessions);
+        persist_session(&session_id, &updated);
+    }
+}
+
 fn spawn_gc(state: AppState) {
     tokio::spawn(async move {
         loop {
@@ -879,29 +938,57 @@ fn spawn_gc(state: AppState) {
     });
 }
 
-/// Reap sessions idle past the TTL, then remove session directories that no
-/// known session references anymore.
+fn should_reap_session(session: &SessionState, now: u64) -> bool {
+    session.exit_code.is_some() && now.saturating_sub(session.last_active_ms) > SESSION_IDLE_TTL_MS
+}
+
+/// Reap completed sessions idle past the TTL, then remove old script
+/// directories only when they have no state and no live tmux session.
 async fn gc_once(state: &AppState) -> Result<(), ServerError> {
     let now = now_ms();
-    let expired: Vec<(Uuid, String)> = {
+    let expired: Vec<Uuid> = {
         let sessions = state.sessions.lock().await;
         sessions
             .iter()
-            .filter(|(_, session)| now.saturating_sub(session.last_active_ms) > SESSION_IDLE_TTL_MS)
-            .map(|(session_id, session)| (*session_id, session.name.clone()))
+            .filter(|(_, session)| should_reap_session(session, now))
+            .map(|(session_id, _)| *session_id)
             .collect()
     };
-    for (session_id, name) in expired {
+    for session_id in expired {
+        let Ok(operation_lock) = session_operation_lock(state, session_id).await else {
+            continue;
+        };
+        let _operation_guard = operation_lock.lock().await;
+        let name = {
+            let sessions = state.sessions.lock().await;
+            if sessions
+                .get(&session_id)
+                .is_some_and(|session| should_reap_session(session, now_ms()))
+            {
+                sessions
+                    .get(&session_id)
+                    .map(|session| session.name.clone())
+            } else {
+                None
+            }
+        };
+        let Some(name) = name else { continue };
         if has_session(state, &name).await {
-            let _ = kill_session(state, &name).await;
+            if let Err(error) = kill_session(state, &name).await {
+                eprintln!("cannot reap shell session {session_id}: {}", error.0);
+                continue;
+            }
         }
-        if let Some(runtime) = name.strip_prefix(SESSION_PREFIX) {
-            if let Ok(root) = cache_root() {
-                let _ = std::fs::remove_dir_all(root.join("sessions").join(runtime));
+        state.sessions.lock().await.remove(&session_id);
+        if let Some(runtime_id) = name
+            .strip_prefix(SESSION_PREFIX)
+            .and_then(|runtime| Uuid::parse_str(runtime).ok())
+        {
+            if let Ok(path) = session_dir(runtime_id) {
+                let _ = std::fs::remove_dir_all(path);
             }
         }
         remove_state_file(&session_id);
-        state.sessions.lock().await.remove(&session_id);
     }
     let referenced: Vec<String> = state
         .sessions
@@ -917,14 +1004,28 @@ async fn gc_once(state: &AppState) -> Result<(), ServerError> {
                 let Some(file_name) = entry.file_name().into_string().ok() else {
                     continue;
                 };
+                let Ok(runtime_id) = Uuid::parse_str(&file_name) else {
+                    continue;
+                };
                 if referenced.contains(&file_name) {
                     continue;
                 }
-                if path.is_dir() {
-                    let _ = std::fs::remove_dir_all(&path);
-                } else {
-                    let _ = std::fs::remove_file(&path);
+                let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+                    continue;
+                };
+                if !metadata.file_type().is_dir()
+                    || metadata
+                        .modified()
+                        .ok()
+                        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+                        .is_none_or(|age| age.as_millis() < SESSION_IDLE_TTL_MS as u128)
+                {
+                    continue;
                 }
+                if has_session(state, &format!("{SESSION_PREFIX}{runtime_id}")).await {
+                    continue;
+                }
+                let _ = std::fs::remove_dir_all(&path);
             }
         }
     }
@@ -954,24 +1055,37 @@ fn resolve_workdir(raw: Option<&str>) -> Result<PathBuf, ServerError> {
     Ok(path)
 }
 
-fn parse_exit_code(snapshot: &str) -> Option<i32> {
+fn shell_quote(path: &std::path::Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+}
+
+fn marker_tail_command(marker: Uuid) -> String {
+    format!("__rikkahub_exit=$?; {}", print_marker_command(marker))
+}
+
+fn print_marker_command(marker: Uuid) -> String {
+    format!("printf '\\n{MARKER_PREFIX}{marker}:%s\\n' \"$__rikkahub_exit\"")
+}
+
+fn followup_launch(script_path: &std::path::Path, marker: Uuid) -> String {
+    // A conditional keeps Bash from exiting on a failing sourced command,
+    // while sourcing preserves cwd and environment in the persistent shell.
+    format!(
+        "if . {}; then __rikkahub_exit=0; else __rikkahub_exit=$?; fi; {}",
+        shell_quote(script_path),
+        print_marker_command(marker)
+    )
+}
+
+fn parse_exit_code(snapshot: &str, marker: Uuid) -> Option<i32> {
+    let expected = format!("{MARKER_PREFIX}{marker}:");
     snapshot.lines().rev().find_map(|line| {
         line.trim_start()
-            .strip_prefix(MARKER_PREFIX)?
+            .strip_prefix(&expected)?
             .trim()
             .parse()
             .ok()
     })
-}
-
-/// Count marker lines in the pane snapshot. A completion is only accepted when
-/// the count grows, so stale markers from previous commands cannot complete a
-/// follow-up command on the same session.
-fn count_markers(snapshot: &str) -> u32 {
-    snapshot
-        .lines()
-        .filter(|line| line.trim_start().starts_with(MARKER_PREFIX))
-        .count() as u32
 }
 
 fn strip_marker(output: &str) -> String {
@@ -983,22 +1097,50 @@ fn strip_marker(output: &str) -> String {
 }
 
 /// Return the part of `current` that was not part of `previous`. Falls back to
-/// a line-based diff when the plain prefix check fails, which happens when a
-/// follow-up command is typed onto the prompt line in place.
+/// a line-based diff when the plain prefix check fails. This covers edits to
+/// the prompt line and tmux dropping old lines from bounded history.
 fn snapshot_delta(previous: &str, current: &str) -> String {
-    if current.starts_with(previous) {
-        return current[previous.len()..].to_string();
+    if let Some(delta) = current.strip_prefix(previous) {
+        return delta.to_string();
     }
     let previous_lines: Vec<&str> = previous.lines().collect();
     let current_lines: Vec<&str> = current.lines().collect();
-    let mut index = 0;
-    while index < previous_lines.len()
-        && index < current_lines.len()
-        && previous_lines[index] == current_lines[index]
-    {
-        index += 1;
+    let common_prefix = previous_lines
+        .iter()
+        .zip(&current_lines)
+        .take_while(|(previous, current)| previous == current)
+        .count();
+    let history_overlap = suffix_prefix_overlap(&previous_lines, &current_lines);
+    current_lines[common_prefix.max(history_overlap)..].join("\n")
+}
+
+fn suffix_prefix_overlap(previous: &[&str], current: &[&str]) -> usize {
+    if current.is_empty() {
+        return 0;
     }
-    current_lines[index..].join("\n")
+    // KMP prefix lengths find the largest suffix of the old pane that is a
+    // prefix of the new pane without quadratic work on long tmux histories.
+    let mut prefix = vec![0; current.len()];
+    for index in 1..current.len() {
+        let mut matched = prefix[index - 1];
+        while matched > 0 && current[index] != current[matched] {
+            matched = prefix[matched - 1];
+        }
+        if current[index] == current[matched] {
+            matched += 1;
+        }
+        prefix[index] = matched;
+    }
+    let mut matched = 0;
+    for line in previous {
+        while matched > 0 && (matched == current.len() || current[matched] != *line) {
+            matched = prefix[matched - 1];
+        }
+        if matched < current.len() && current[matched] == *line {
+            matched += 1;
+        }
+    }
+    matched
 }
 
 fn limit_output(output: &str, max_chars: usize) -> String {
@@ -1119,6 +1261,76 @@ mod tests {
         http::Request,
     };
     use tower::ServiceExt;
+
+    fn sample_session(exit_code: Option<i32>, last_active_ms: u64) -> SessionState {
+        SessionState {
+            name: format!("{SESSION_PREFIX}{}", Uuid::new_v4()),
+            timeout_ms: 60 * 60 * 1_000,
+            last_active_ms,
+            exit_code,
+            timed_out: false,
+            current_marker: Uuid::new_v4(),
+            last_snapshot: String::new(),
+            operation_lock: Arc::new(Mutex::new(())),
+        }
+    }
+
+    #[test]
+    fn current_command_marker_ignores_stale_history() {
+        let old_marker = Uuid::new_v4();
+        let current_marker = Uuid::new_v4();
+        let snapshot = format!(
+            "{MARKER_PREFIX}{old_marker}:0\ncommand output\n{MARKER_PREFIX}{current_marker}:7\n"
+        );
+        assert_eq!(parse_exit_code(&snapshot, current_marker), Some(7));
+        assert_eq!(
+            parse_exit_code(&format!("{MARKER_PREFIX}{old_marker}:0\n"), current_marker),
+            None
+        );
+        assert!(marker_tail_command(current_marker).contains(&current_marker.to_string()));
+    }
+
+    #[test]
+    fn followup_command_keeps_marker_in_the_same_shell_line() {
+        let marker = Uuid::new_v4();
+        let launch = followup_launch(std::path::Path::new("a'b.sh"), marker);
+        assert!(launch.starts_with("if . 'a'\\''b.sh'; then "));
+        assert!(launch.contains(&format!("{MARKER_PREFIX}{marker}:")));
+        assert!(!launch.contains('\n'));
+    }
+
+    #[test]
+    fn pane_delta_handles_prompt_edits_and_history_rollover() {
+        assert_eq!(
+            snapshot_delta("first\nprompt$ ", "first\nprompt$ next\nresult"),
+            "next\nresult"
+        );
+        assert_eq!(
+            snapshot_delta("first\nprompt$ old", "first\nprompt$ next\nresult"),
+            "prompt$ next\nresult"
+        );
+        assert_eq!(
+            snapshot_delta("one\ntwo\nthree", "two\nthree\nfour"),
+            "four"
+        );
+    }
+
+    #[test]
+    fn gc_only_reaps_completed_idle_sessions() {
+        let now = SESSION_IDLE_TTL_MS + 1;
+        assert!(!should_reap_session(&sample_session(None, 0), now));
+        assert!(should_reap_session(&sample_session(Some(0), 0), now));
+        assert!(!should_reap_session(&sample_session(Some(0), now), now));
+    }
+
+    #[test]
+    fn restored_session_keeps_its_current_marker() {
+        let session = sample_session(None, 123);
+        let serialized = serde_json::to_string(&session).unwrap();
+        let restored: SessionState = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(restored.current_marker, session.current_marker);
+        assert_eq!(restored.last_active_ms, 123);
+    }
 
     fn test_router() -> Router {
         build_router(AppState {
