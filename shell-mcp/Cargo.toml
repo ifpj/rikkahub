@@ -1,8 +1,8 @@
 [package]
-name = "rikkahub-shell-mcp"
-version = "0.2.0"
+name = "shell-mcp"
+version = "0.3.0"
 edition = "2021"
-description = "A small Streamable HTTP MCP server for interactive Termux shell sessions"
+description = "A Streamable HTTP MCP server for interactive host shell sessions"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
