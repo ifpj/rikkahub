@@ -275,20 +275,30 @@ class WorkspaceManager(
         yieldMillis: Long = DEFAULT_SESSION_WAIT_MS,
     ): WorkspaceShellSessionResult {
         val session = getShellSession(root, sessionId)
-        if (stdin != null) session.process.writeStdin(stdin)
-        if (closeStdin) session.process.closeStdin()
-        if (interrupt) session.process.interrupt()
-        if (terminalRows != null && terminalColumns != null) {
-            session.process.resizeTerminal(terminalRows, terminalColumns)
+        // The process may finish between the previous tool result and this call. In that case,
+        // control actions have already achieved their goal; still return the remaining output.
+        if (!session.process.isCompleted) {
+            if (stdin != null) session.process.runWhileActive { writeStdin(stdin) }
+            if (closeStdin) session.process.runWhileActive { closeStdin() }
+            if (interrupt) session.process.runWhileActive { interrupt() }
+            if (terminalRows != null && terminalColumns != null) {
+                session.process.runWhileActive { resizeTerminal(terminalRows, terminalColumns) }
+            }
+            if (terminate) session.process.runWhileActive { terminate() }
         }
-        if (terminate) {
-            session.process.terminate()
-            session.process.await(TERMINATION_WAIT_MS)
-        }
-        if (!terminate) {
-            session.process.await(yieldMillis.coerceIn(0, MAX_SESSION_YIELD_MS))
-        }
+        session.process.await(if (terminate) TERMINATION_WAIT_MS else yieldMillis.coerceIn(0, MAX_SESSION_YIELD_MS))
         return takeShellSessionSnapshot(session)
+    }
+
+    private inline fun WorkspaceShellProcess.runWhileActive(action: WorkspaceShellProcess.() -> Unit) {
+        if (isCompleted) return
+        try {
+            action()
+        } catch (error: Exception) {
+            // A concurrent natural exit can close the PTY between the liveness check and the write.
+            if (error is InterruptedException) throw error
+            if (!isCompleted) throw error
+        }
     }
 
     private fun createShellContext(

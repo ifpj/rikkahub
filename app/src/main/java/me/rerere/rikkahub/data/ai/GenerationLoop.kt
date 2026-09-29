@@ -15,8 +15,13 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
@@ -264,6 +269,7 @@ class GenerationLoop(
                             }.getOrElse {
                                 error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
                             }
+                            validateRequiredToolArguments(toolDef, args)
                             Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
                             var result = toolDef.execute(args)
                             val continuation = toolDef.continueExecution
@@ -305,23 +311,9 @@ class GenerationLoop(
                         }.onFailure {
                             // 取消必须向上传播，否则停止生成会被误报为工具执行错误
                             if (it is CancellationException) throw it
-                            it.printStackTrace()
+                            Log.e(TAG, "Tool ${tool.toolName} execution failed", it)
                             executedTools += tool.copy(
-                                output = listOf(
-                                    UIMessagePart.Text(
-                                        json.encodeToString(
-                                            buildJsonObject {
-                                                put(
-                                                    "error",
-                                                    JsonPrimitive(buildString {
-                                                        append("[${it.javaClass.name}] ${it.message}")
-                                                        append("\n${it.stackTraceToString()}")
-                                                    })
-                                                )
-                                            }
-                                        )
-                                    )
-                                )
+                                output = listOf(toolExecutionErrorResult(it))
                             )
                         }
                     }
@@ -599,4 +591,25 @@ class GenerationLoop(
         ) + nonTextParts
     }
 
+}
+
+internal fun validateRequiredToolArguments(tool: Tool, args: JsonElement) {
+    val required = (tool.parameters() as? InputSchema.Obj)?.required.orEmpty()
+    if (required.isEmpty()) return
+    val values = args as? JsonObject ?: throw IllegalArgumentException("tool arguments must be an object")
+    required.firstOrNull { key -> key !in values || values[key] == JsonNull }?.let { key ->
+        throw IllegalArgumentException("missing required param: $key")
+    }
+}
+
+internal fun toolExecutionErrorResult(error: Throwable): UIMessagePart.Text {
+    val type = error.javaClass.simpleName.ifBlank { "Exception" }
+    val detail = error.message?.lineSequence()?.firstOrNull()?.trim().orEmpty().take(300)
+    val content = if (detail.isEmpty()) type else "$type: $detail"
+    return UIMessagePart.Text(
+        buildJsonObject {
+            put("isError", true)
+            put("content", content)
+        }.toString()
+    )
 }
