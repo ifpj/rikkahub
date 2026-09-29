@@ -24,7 +24,7 @@ import me.rerere.workspace.WorkspaceShellSessionStatus
 import org.koin.java.KoinJavaComponent.getKoin
 import java.io.ByteArrayOutputStream
 
-private const val SHELL_TIMEOUT_MAX_MILLIS = 600_000L
+private const val SHELL_TIMEOUT_MAX_MILLIS = 30 * 60_000L
 private const val SHELL_YIELD_MAX_MILLIS = 30_000L
 private const val SHELL_INITIAL_YIELD_MILLIS = 1_000L
 private const val SHELL_YIELD_TIME_KEY = "yield_time_ms"
@@ -254,7 +254,8 @@ private fun createShellExecCommandTool(
                     put("type", "integer")
                     put(
                         "description",
-                        "Command timeout in milliseconds. Defaults to 30000, max $SHELL_TIMEOUT_MAX_MILLIS."
+                        "Total command timeout in milliseconds (not renewed by polling). Defaults to " +
+                            "${WorkspaceManager.DEFAULT_SESSION_TIMEOUT_MS}, max $SHELL_TIMEOUT_MAX_MILLIS."
                     )
                 })
                 put(SHELL_YIELD_TIME_KEY, buildJsonObject {
@@ -289,7 +290,7 @@ private fun createShellExecCommandTool(
             .removePrefix("/workspace/").removePrefix("/workspace")
         val timeoutMillis = params.string("timeout_ms")?.toLongOrNull()
             ?.coerceIn(1_000L, SHELL_TIMEOUT_MAX_MILLIS)
-            ?: WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS
+            ?: WorkspaceManager.DEFAULT_SESSION_TIMEOUT_MS
         val yieldMillis = params.string(SHELL_YIELD_TIME_KEY)?.toLongOrNull()
             ?.coerceIn(0L, SHELL_YIELD_MAX_MILLIS)
             ?: SHELL_INITIAL_YIELD_MILLIS
@@ -405,14 +406,14 @@ private fun kotlinx.serialization.json.JsonObject.string(name: String): String? 
 private fun kotlinx.serialization.json.JsonObject.boolean(name: String): Boolean? =
     this[name]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
 
-private fun WorkspaceShellSessionResult.toJson() = buildJsonObject {
+internal fun WorkspaceShellSessionResult.toJson() = buildJsonObject {
     put("status", status.name.lowercase())
-    sessionId?.let { put("sessionId", it) }
+    sessionId?.let { put("session_id", it) }
     put("stdout", stdout)
     put("stderr", stderr)
     if (status == WorkspaceShellSessionStatus.COMPLETED) {
-        exitCode?.let { put("exitCode", it) }
-        put("timedOut", timedOut)
+        exitCode?.let { put("exit_code", it) }
+        put("timed_out", timedOut)
     }
     if (truncated) put("truncated", true)
     if (pty) put("pty", true)

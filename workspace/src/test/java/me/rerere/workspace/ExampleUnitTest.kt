@@ -215,6 +215,7 @@ class ExampleUnitTest {
         assertTrue(capturedContext.usePty)
         assertEquals(42, capturedContext.terminalRows)
         assertEquals(132, capturedContext.terminalColumns)
+        assertEquals(WorkspaceManager.DEFAULT_SESSION_TIMEOUT_MS, capturedContext.timeoutMillis)
     }
 
     @Test

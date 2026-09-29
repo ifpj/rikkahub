@@ -363,7 +363,8 @@ object ShellToolUI : ToolUIRenderer {
         val command = context.arguments.getStringContent("command")
         val workdir = context.arguments.getStringContent("workdir")
         val sessionId = context.arguments.getStringContent("session_id")
-            ?: content.getStringContent("sessionId")
+            ?: content.getStringContent("session_id")
+            ?: content.getStringContent("sessionId") // Older conversation history
         val stdout = content.getStringContent("stdout").orEmpty()
         val stderr = content.getStringContent("stderr").orEmpty()
         val terminalOutput = remember(context.tool.output) { context.shellTerminalOutput() }
@@ -585,8 +586,8 @@ private fun ansiColor(index: Int): Color {
 @Composable
 private fun ShellExitStatus(content: JsonElement, style: androidx.compose.ui.text.TextStyle) {
     val running = content.getStringContent("status") == "running"
-    val exitCode = content.int("exitCode")
-    val timedOut = content.boolean("timedOut") ?: false
+    val exitCode = content.int("exit_code") ?: content.int("exitCode")
+    val timedOut = content.boolean("timed_out") ?: content.boolean("timedOut") ?: false
     val ok = !timedOut && exitCode == 0
     Text(
         text = when {

@@ -312,7 +312,7 @@ class WorkspaceRepository(
         id: String,
         command: String,
         cwd: String = "",
-        timeoutMillis: Long = WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS,
+        timeoutMillis: Long = WorkspaceManager.DEFAULT_SESSION_TIMEOUT_MS,
         yieldMillis: Long = WorkspaceManager.DEFAULT_SESSION_YIELD_MS,
         terminalRows: Int = DEFAULT_TERMINAL_ROWS,
         terminalColumns: Int = DEFAULT_TERMINAL_COLUMNS,

@@ -30,12 +30,17 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::{process::Command, sync::Mutex, time::sleep};
+use tokio::{
+    process::Command,
+    sync::Mutex,
+    time::{sleep, Instant},
+};
 use uuid::Uuid;
 
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_YIELD_MS: u64 = 1_000;
 const MAX_YIELD_MS: u64 = 30_000;
+const YIELD_POLL_INTERVAL_MS: u64 = 150;
 const DEFAULT_TIMEOUT_MS: u64 = 10 * 60 * 1_000;
 const MAX_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1_000;
 const WATCHER_TICK_MS: u64 = 1_000;
@@ -273,7 +278,7 @@ async fn health() -> Response {
 fn exec_command_tool() -> Tool {
     Tool::new(
         "exec_command",
-        "Run a shell command in the host environment using a persistent interactive shell session. If the command is still running after yield_time_ms, use write_stdin with the returned session_id. Do not start a second command just to continue an existing session.",
+        "Run one shell command in an isolated interactive tmux session. If it is still running after yield_time_ms, use write_stdin with the returned session_id. Once completed, use exec_command for a new command.",
         json!({
             "type": "object",
             "properties": {
@@ -293,16 +298,16 @@ fn exec_command_tool() -> Tool {
 fn write_stdin_tool() -> Tool {
     Tool::new(
         "write_stdin",
-        "Continue an existing exec_command session. Use empty chars to poll output, chars to send input, interrupt for Ctrl+C, close_stdin for EOF, or terminate to stop the session.",
+        "Continue a running exec_command session. Use empty chars to poll output, chars to send input, interrupt for Ctrl+C, close_stdin for EOF, or terminate to stop the command. A completed session only supports polling; use exec_command for a new command.",
         json!({
             "type": "object",
             "properties": {
                 "session_id": { "type": "string", "description": "Session ID returned by exec_command" },
-                "chars": { "type": "string", "description": "Text to write to the process stdin. If the previous command already finished, this text is executed as a new shell command with its own exit-code tracking." },
+                "chars": { "type": "string", "description": "Text to write to the running command's stdin. After completion, use exec_command for a new command." },
                 "yield_time_ms": { "type": "integer", "description": "How long to wait for output after writing or polling. Defaults to 1000." },
-                "close_stdin": { "type": "boolean", "description": "Send EOF (Ctrl+D) after writing. Only use when a program is waiting for EOF; at an idle shell prompt it exits the shell and kills the session." },
+                "close_stdin": { "type": "boolean", "description": "Send EOF (Ctrl+D) after writing. Only use when the running program is waiting for EOF." },
                 "interrupt": { "type": "boolean", "description": "Send Ctrl+C to the foreground process" },
-                "terminate": { "type": "boolean", "description": "Terminate the tmux session (reports exit_code 137)" },
+                "terminate": { "type": "boolean", "description": "Terminate a running tmux command (reports exit_code 137). Already-completed commands keep their original exit code." },
                 "rows": { "type": "integer", "description": "New terminal height; columns must also be provided." },
                 "columns": { "type": "integer", "description": "New terminal width; rows must also be provided." }
             },
@@ -352,8 +357,7 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
             "-y".into(),
             rows.to_string(),
             // tmux may start fish (or another user-selected shell). Replace
-            // it once so the persistent session and all later commands use
-            // Bash while inheriting the host shell's environment.
+            // it with Bash so command startup is consistent.
             "exec bash".into(),
         ],
     )
@@ -369,12 +373,25 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
         ],
     )
     .await?;
+    // Keep the pane available for final output after its command process exits.
+    tmux(
+        state,
+        [
+            "set-window-option".into(),
+            "-t".into(),
+            session_name.clone(),
+            "remain-on-exit".into(),
+            "on".into(),
+        ],
+    )
+    .await?;
+    // The interactive shell may have already printed its prompt. Do not treat
+    // that startup text as command output when deciding whether to yield.
+    let initial_snapshot = capture_pane(state, &session_name).await?;
     let current_marker = Uuid::new_v4();
-    let launch = format!(
-        "bash -- {} ; {}",
-        shell_quote(&script_path),
-        marker_tail_command(current_marker)
-    );
+    // exec replaces the shell: once this command exits, delayed stdin cannot
+    // turn into a new command at an idle shell prompt.
+    let launch = one_shot_launch(&script_path, current_marker);
     send_literal(state, &session_name, &launch).await?;
     send_key(state, &session_name, "Enter").await?;
 
@@ -387,7 +404,7 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
         exit_code: None,
         timed_out: false,
         current_marker,
-        last_snapshot: String::new(),
+        last_snapshot: initial_snapshot,
         operation_lock: operation_lock.clone(),
     };
     state
@@ -398,8 +415,7 @@ async fn execute_command(state: &AppState, args: &Value) -> Result<String, Serve
     persist_session(&session_id, &session_state);
     spawn_timeout_watcher(state.clone(), session_id, current_marker);
 
-    sleep(Duration::from_millis(yield_ms)).await;
-    let output = poll_session(state, session_id, max_output).await?;
+    let output = wait_for_session_output(state, session_id, max_output, yield_ms).await?;
     Ok(format_session_result(session_id, output))
 }
 
@@ -413,10 +429,10 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
     let yield_ms = bounded_u64(args, "yield_time_ms", DEFAULT_YIELD_MS, MAX_YIELD_MS);
     let chars = args.get("chars").and_then(Value::as_str);
     if !has_session(state, &name).await {
-        if chars.is_some_and(|chars| !chars.trim().is_empty()) {
-            return Err(ServerError::message(format!(
-                "Shell session {session_id} cannot accept input because it has ended"
-            )));
+        if chars.is_some_and(|chars| !chars.is_empty()) {
+            return Err(ServerError::message(
+                "Shell command has completed; use exec_command for a new command",
+            ));
         }
         let output = poll_session(state, session_id, max_output).await?;
         return Ok(format_session_result(session_id, output));
@@ -425,31 +441,39 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
         .get("interrupt")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    if (chars.is_some_and(|chars| !chars.trim().is_empty()) || interrupt)
-        && state_entry.exit_code.is_none()
-    {
-        // A command may have finished after the preceding poll. Refresh its
-        // completion before deciding whether chars are stdin or a new command,
-        // or whether interrupt still has a foreground command to stop.
+    if state_entry.exit_code.is_none() {
+        // Refresh completion before handling control actions. The pane is
+        // one-shot, so late input cannot run as a new shell command.
         let snapshot = match capture_pane(state, &name).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 if has_session(state, &name).await {
                     return Err(error);
                 }
-                if chars.is_some_and(|chars| !chars.trim().is_empty()) {
-                    return Err(ServerError::message(format!(
-                        "Shell session {session_id} cannot accept input because it has ended"
-                    )));
+                if chars.is_some_and(|chars| !chars.is_empty()) {
+                    return Err(ServerError::message(
+                        "Shell command has completed; use exec_command for a new command",
+                    ));
                 }
                 let output = poll_session(state, session_id, max_output).await?;
                 return Ok(format_session_result(session_id, output));
             }
         };
-        if let Some(code) = parse_exit_code(&snapshot, state_entry.current_marker) {
+        let completion =
+            detect_completion(state, &name, &snapshot, state_entry.current_marker).await?;
+        if let Some(code) = completion {
             update_exit_status(state, session_id, code, false).await;
             state_entry.exit_code = Some(code);
         }
+    }
+    if state_entry.exit_code.is_some() {
+        if chars.is_some_and(|chars| !chars.is_empty()) {
+            return Err(ServerError::message(
+                "Shell command has completed; use exec_command for a new command",
+            ));
+        }
+        let output = poll_session(state, session_id, max_output).await?;
+        return Ok(format_session_result(session_id, output));
     }
     touch_session(state, &session_id).await;
 
@@ -465,32 +489,18 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
         resize_session(state, &name, rows as u16, columns as u16).await?;
     }
     if let Some(chars) = chars {
-        if !chars.trim().is_empty() && state_entry.exit_code.is_some() {
-            // The previous command already finished, so this text starts a new
-            // command at the persistent shell prompt. Wrap it with its own
-            // exit-code marker so follow-up commands report their own status
-            // instead of inheriting the stale marker of the previous command.
-            let current_marker = Uuid::new_v4();
-            send_new_command(state, &name, chars, current_marker).await?;
-            let mut sessions = state.sessions.lock().await;
-            if let Some(entry) = sessions.get_mut(&session_id) {
-                entry.exit_code = None;
-                entry.timed_out = false;
-                entry.current_marker = current_marker;
-                entry.last_active_ms = now_ms();
-                let updated = entry.clone();
-                drop(sessions);
-                persist_session(&session_id, &updated);
-                spawn_timeout_watcher(state.clone(), session_id, current_marker);
+        if let Err(error) = send_text(state, &name, chars).await {
+            if session_has_ended(state, &name).await {
+                return Err(ServerError::message(
+                    "Shell command has completed; use exec_command for a new command",
+                ));
             }
-            state_entry.exit_code = None;
-        } else {
-            send_text(state, &name, chars).await?;
+            return Err(error);
         }
     }
-    if interrupt && state_entry.exit_code.is_none() {
+    if interrupt {
         if let Err(error) = send_key(state, &name, "C-c").await {
-            if has_session(state, &name).await {
+            if !session_has_ended(state, &name).await {
                 return Err(error);
             }
             let output = poll_session(state, session_id, max_output).await?;
@@ -502,7 +512,13 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
-        send_key(state, &name, "C-d").await?;
+        if let Err(error) = send_key(state, &name, "C-d").await {
+            if !session_has_ended(state, &name).await {
+                return Err(error);
+            }
+            let output = poll_session(state, session_id, max_output).await?;
+            return Ok(format_session_result(session_id, output));
+        }
     }
     if args
         .get("terminate")
@@ -510,6 +526,9 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
         .unwrap_or(false)
     {
         let pending = poll_session(state, session_id, max_output).await?;
+        if matches!(pending.status, SessionStatus::Completed(_)) {
+            return Ok(format_session_result(session_id, pending));
+        }
         if let Err(error) = kill_session(state, &name).await {
             if has_session(state, &name).await {
                 return Err(error);
@@ -537,9 +556,31 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
         ));
     }
 
-    sleep(Duration::from_millis(yield_ms)).await;
-    let output = poll_session(state, session_id, max_output).await?;
+    let output = wait_for_session_output(state, session_id, max_output, yield_ms).await?;
     Ok(format_session_result(session_id, output))
+}
+
+/// Yield is a maximum wait, not an unconditional delay. Return when there is
+/// new output or the command reaches a terminal state.
+async fn wait_for_session_output(
+    state: &AppState,
+    session_id: Uuid,
+    max_output: usize,
+    yield_ms: u64,
+) -> Result<PollResult, ServerError> {
+    let started = Instant::now();
+    let max_wait = Duration::from_millis(yield_ms);
+    loop {
+        let result = poll_session(state, session_id, max_output).await?;
+        if !matches!(result.status, SessionStatus::Running) || !result.output.is_empty() {
+            return Ok(result);
+        }
+        let remaining = max_wait.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Ok(result);
+        }
+        sleep(remaining.min(Duration::from_millis(YIELD_POLL_INTERVAL_MS))).await;
+    }
 }
 
 fn spawn_timeout_watcher(state: AppState, session_id: Uuid, current_marker: Uuid) {
@@ -561,7 +602,9 @@ fn spawn_timeout_watcher(state: AppState, session_id: Uuid, current_marker: Uuid
             }
             if has_session(&state, &session.name).await {
                 if let Ok(snapshot) = capture_pane(&state, &session.name).await {
-                    if let Some(code) = parse_exit_code(&snapshot, current_marker) {
+                    if let Ok(Some(code)) =
+                        detect_completion(&state, &session.name, &snapshot, current_marker).await
+                    {
                         update_exit_status(&state, session_id, code, false).await;
                         return;
                     }
@@ -601,7 +644,8 @@ async fn poll_session(
         }
     };
     let delta = snapshot_delta(&session.last_snapshot, &snapshot);
-    let completion = parse_exit_code(&snapshot, session.current_marker);
+    let completion =
+        detect_completion(state, &session.name, &snapshot, session.current_marker).await?;
     let mut refreshed = None;
     {
         let mut sessions = state.sessions.lock().await;
@@ -625,7 +669,7 @@ async fn poll_session(
     };
     Ok(PollResult {
         status,
-        output: limit_output(&strip_marker(&delta), max_output),
+        output: limit_output(&strip_marker(&delta, session.current_marker), max_output),
         timed_out: session.timed_out,
     })
 }
@@ -747,6 +791,47 @@ async fn has_session(state: &AppState, name: &str) -> bool {
         .unwrap_or(false)
 }
 
+async fn pane_dead_status(state: &AppState, name: &str) -> Result<Option<i32>, ServerError> {
+    let output = tmux(
+        state,
+        [
+            "display-message".into(),
+            "-p".into(),
+            "-t".into(),
+            name.into(),
+            "#{pane_dead} #{pane_dead_status}".into(),
+        ],
+    )
+    .await?;
+    let line = String::from_utf8_lossy(&output.stdout);
+    let mut parts = line.split_whitespace();
+    Ok(if parts.next() == Some("1") {
+        Some(parts.next().and_then(|code| code.parse().ok()).unwrap_or(1))
+    } else {
+        None
+    })
+}
+
+async fn session_has_ended(state: &AppState, name: &str) -> bool {
+    !has_session(state, name).await || pane_dead_status(state, name).await.ok().flatten().is_some()
+}
+
+async fn detect_completion(
+    state: &AppState,
+    name: &str,
+    snapshot: &str,
+    marker: Uuid,
+) -> Result<Option<i32>, ServerError> {
+    if let Some(code) = parse_exit_code(snapshot, marker) {
+        return Ok(Some(code));
+    }
+    match pane_dead_status(state, name).await {
+        Ok(code) => Ok(code),
+        Err(_) if !has_session(state, name).await => Ok(Some(1)),
+        Err(error) => Err(error),
+    }
+}
+
 async fn capture_pane(state: &AppState, name: &str) -> Result<String, ServerError> {
     let output = tmux(
         state,
@@ -791,29 +876,6 @@ async fn send_text(state: &AppState, name: &str, text: &str) -> Result<(), Serve
             send_key(state, name, "Enter").await?;
         }
     }
-    Ok(())
-}
-
-/// Send a follow-up command at the persistent shell prompt, wrapped so that it
-/// prints its own exit-code marker when it finishes.
-async fn send_new_command(
-    state: &AppState,
-    name: &str,
-    text: &str,
-    marker: Uuid,
-) -> Result<(), ServerError> {
-    let runtime_id = name
-        .strip_prefix(SESSION_PREFIX)
-        .and_then(|value| Uuid::parse_str(value).ok())
-        .ok_or_else(|| ServerError::message("invalid tmux session name"))?;
-    let script_path = session_dir(runtime_id)?.join("command.sh");
-    std::fs::write(&script_path, format!("{text}\n"))
-        .map_err(|error| ServerError::message(format!("cannot write command script: {error}")))?;
-    // Send one shell line. A separate marker line could be consumed as stdin
-    // by a command such as read, leaving the session stuck in running state.
-    let launch = followup_launch(&script_path, marker);
-    send_literal(state, name, &launch).await?;
-    send_key(state, name, "Enter").await?;
     Ok(())
 }
 
@@ -1103,7 +1165,20 @@ fn resolve_workdir(raw: Option<&str>) -> Result<PathBuf, ServerError> {
 }
 
 fn shell_quote(path: &std::path::Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+    shell_quote_text(&path.to_string_lossy())
+}
+
+fn shell_quote_text(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+fn one_shot_launch(script_path: &std::path::Path, marker: Uuid) -> String {
+    let command = format!(
+        "bash -- {} ; {}",
+        shell_quote(script_path),
+        marker_tail_command(marker)
+    );
+    format!("exec bash -c {}", shell_quote_text(&command))
 }
 
 fn marker_tail_command(marker: Uuid) -> String {
@@ -1112,16 +1187,6 @@ fn marker_tail_command(marker: Uuid) -> String {
 
 fn print_marker_command(marker: Uuid) -> String {
     format!("printf '\\n{MARKER_PREFIX}{marker}:%s\\n' \"$__shell_mcp_exit\"")
-}
-
-fn followup_launch(script_path: &std::path::Path, marker: Uuid) -> String {
-    // A conditional keeps Bash from exiting on a failing sourced command,
-    // while sourcing preserves cwd and environment in the persistent shell.
-    format!(
-        "if . {}; then __shell_mcp_exit=0; else __shell_mcp_exit=$?; fi; {}",
-        shell_quote(script_path),
-        print_marker_command(marker)
-    )
 }
 
 fn parse_exit_code(snapshot: &str, marker: Uuid) -> Option<i32> {
@@ -1135,10 +1200,13 @@ fn parse_exit_code(snapshot: &str, marker: Uuid) -> Option<i32> {
     })
 }
 
-fn strip_marker(output: &str) -> String {
+fn strip_marker(output: &str, marker: Uuid) -> String {
+    let marker_text = format!("{MARKER_PREFIX}{marker}");
     output
         .lines()
-        .filter(|line| !line.trim_start().starts_with(MARKER_PREFIX))
+        // Also hide the shell's echoed launch line, which contains the marker
+        // inside its quoted command and is not real command output.
+        .filter(|line| !line.contains(&marker_text))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -1333,10 +1401,21 @@ mod tests {
     }
 
     #[test]
-    fn followup_command_keeps_marker_in_the_same_shell_line() {
+    fn echoed_launch_does_not_count_as_command_output() {
         let marker = Uuid::new_v4();
-        let launch = followup_launch(std::path::Path::new("a'b.sh"), marker);
-        assert!(launch.starts_with("if . 'a'\\''b.sh'; then "));
+        let pane = format!(
+            "$ exec bash -c 'printf {MARKER_PREFIX}{marker}'\nactual output\n{MARKER_PREFIX}{marker}:0\n"
+        );
+        assert_eq!(strip_marker(&pane, marker), "actual output");
+    }
+
+    #[test]
+    fn one_shot_command_replaces_shell_and_keeps_marker_in_the_same_line() {
+        let marker = Uuid::new_v4();
+        let launch = one_shot_launch(std::path::Path::new("a'b.sh"), marker);
+        assert!(launch.starts_with("exec bash -c "));
+        assert!(launch.contains("b.sh"));
+        assert!(!launch.contains("a'b.sh"));
         assert!(launch.contains(&format!("{MARKER_PREFIX}{marker}:")));
         assert!(!launch.contains('\n'));
     }
@@ -1448,6 +1527,36 @@ mod tests {
 
         assert_eq!(result["status"], "completed");
         assert_eq!(result["exit_code"], 1);
+    }
+
+    #[tokio::test]
+    async fn completed_session_rejects_new_command_input() {
+        let (state, session_id) = unavailable_tmux_state(Some(0));
+        let result = write_stdin(
+            &state,
+            &json!({ "session_id": session_id.to_string(), "chars": "echo unsafe" }),
+        )
+        .await;
+        assert_eq!(
+            result.unwrap_err().0,
+            "Shell command has completed; use exec_command for a new command"
+        );
+        remove_state_file(&session_id);
+    }
+
+    #[tokio::test]
+    async fn completed_session_does_not_wait_for_full_yield() {
+        let (state, session_id) = unavailable_tmux_state(Some(0));
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            wait_for_session_output(&state, session_id, DEFAULT_MAX_OUTPUT, MAX_YIELD_MS),
+        )
+        .await;
+        remove_state_file(&session_id);
+        assert!(matches!(
+            result.unwrap().unwrap().status,
+            SessionStatus::Completed(0)
+        ));
     }
 
     fn test_router() -> Router {

@@ -5,9 +5,9 @@
 - `exec_command`
 - `write_stdin`
 
-服务端通过独立的 tmux socket 管理持久 Shell 会话。运行主机需要安装 `tmux` 和 `bash`。
+服务端通过独立的 tmux socket 管理交互式命令会话。运行主机需要安装 `tmux` 和 `bash`。
 
-每个新会话会先在 tmux 中执行一次 `exec bash`，因此即使默认 Shell 是 fish，后续工具调用仍会复用同一个 Bash 会话和原有环境变量。
+每个新会话先在 tmux 中切换到 Bash，再用一次性 Bash 进程运行命令。因此即使默认 Shell 是 fish，命令也会在 Bash 中执行；命令结束后不会留下可执行下一条命令的提示符。
 
 ## 启动与连接
 
@@ -57,11 +57,12 @@ cargo ndk -t arm64-v8a build --release
 - 服务默认只监听 `127.0.0.1`。
 - 建议始终配置随机 Token；未配置 Token 时程序会打印警告。
 - `write_stdin` 的空 `chars` 用于继续等待和轮询输出。
+- `yield_time_ms` 是最长等待时间；有新输出或命令结束时会提前返回。
 - `interrupt`、`close_stdin`、`terminate` 和 `rows`/`columns` 与 Workspace Shell 的语义一致。
 - 会话通过 `tmux -L shell-mcp` 隔离，用户仍可以在主机终端中手动 attach 会话。
 - `timeout_ms` 是**空闲超时**：每次轮询或输入都会续期，只要会话还在被使用就不会被击杀；默认 10 分钟。超时击杀以 `exit_code: 124` 加 `timed_out: true` 返回。
-- 在已完成的会话上通过 `write_stdin` 发送新命令时，服务端会把命令和独立的退出码标记作为同一条 Shell 命令提交，后续命令报告自己的 `exit_code`，不会继承上一条命令的陈旧标记；续发命令在常驻 Bash 中执行，其对工作目录和环境变量的修改会留给后续续发命令。
+- 每个 `exec_command` 会话只对应一条命令。命令完成后可以继续用空 `chars` 读取最终状态，但不能通过 `write_stdin` 执行新命令；下一条命令请重新调用 `exec_command`。命令退出后 tmux 保留只读窗格，以便读取末尾输出，不会把迟到的输入当作 Shell 命令执行。
 - 会话状态持久化在 `~/.cache/shell-mcp/state/`，服务进程重启后已存在的会话仍可续接。
 - 已完成且闲置超过 30 分钟的会话会被自动回收（tmux 会话 + 脚本目录 + 状态文件），不再泄漏。
 - tmux `history-limit` 提升到 50000，可避免常见长输出被默认 2000 行缓冲驱逐；若两次轮询之间输出超过 50000 行，超出部分仍可能丢失。
-- `close_stdin`（Ctrl+D）只应在程序等待 EOF 时使用；在空闲 shell 提示符下发送会退出常驻 shell 并终止会话。
+- `close_stdin`（Ctrl+D）只应在运行中的程序等待 EOF 时使用；命令完成后不会再接受新输入。

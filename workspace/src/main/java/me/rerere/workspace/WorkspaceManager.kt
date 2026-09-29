@@ -212,7 +212,7 @@ class WorkspaceManager(
         root: String,
         command: String,
         cwd: String = "",
-        timeoutMillis: Long = DEFAULT_COMMAND_TIMEOUT_MS,
+        timeoutMillis: Long = DEFAULT_SESSION_TIMEOUT_MS,
         yieldMillis: Long = DEFAULT_SESSION_YIELD_MS,
         terminalRows: Int = DEFAULT_TERMINAL_ROWS,
         terminalColumns: Int = DEFAULT_TERMINAL_COLUMNS,
@@ -418,6 +418,7 @@ class WorkspaceManager(
         private const val LINUX_DIR = "linux"
         private const val TEMP_DIR = "tmp"
         const val DEFAULT_COMMAND_TIMEOUT_MS = 30_000L
+        const val DEFAULT_SESSION_TIMEOUT_MS = 10 * 60_000L
         const val DEFAULT_SESSION_YIELD_MS = 10_000L
         const val DEFAULT_SESSION_WAIT_MS = 10_000L
 
