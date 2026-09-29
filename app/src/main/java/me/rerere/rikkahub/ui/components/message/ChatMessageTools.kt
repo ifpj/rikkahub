@@ -103,7 +103,7 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
         return
     }
 
-    val renderer = remember(tool.toolName) { ToolUIRegistry.resolve(tool.toolName) }
+    val renderer = remember(tool) { ToolUIRegistry.resolve(tool) }
     val context = remember(tool, loading) {
         ToolUIContext(
             tool = tool,

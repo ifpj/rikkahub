@@ -29,6 +29,7 @@ private const val TAG = "McpSessionRegistry"
 private const val MAX_RECONNECT_ATTEMPTS = 5
 private const val BASE_RECONNECT_DELAY_MS = 1000L
 private const val MAX_RECONNECT_DELAY_MS = 30000L
+internal const val MCP_RAW_STDOUT_HEADER = "X-Shell-Mcp-Raw-Stdout"
 
 /** 单个 MCP Server 的全部运行时状态。 */
 private class McpSession(initialConfig: McpServerConfig) {
@@ -504,13 +505,20 @@ private fun hasSameConnectionParameters(
 
 internal fun McpServerConfig.resolvedHeaders(): List<Pair<String, String>> {
     // 设置页“添加请求头”后可能留下空名称；native HTTP 头解析会拒绝它。
-    val base = commonOptions.headers.filter { it.first.isNotBlank() }
+    val base = commonOptions.headers.filter {
+        it.first.isNotBlank() && !it.first.equals(MCP_RAW_STDOUT_HEADER, ignoreCase = true)
+    }
     val token = commonOptions.oauth?.takeIf { it.enabled }?.accessToken
     val hasAuthorization = base.any { it.first.equals("Authorization", ignoreCase = true) }
-    return if (!token.isNullOrBlank() && !hasAuthorization) {
+    val headers = if (!token.isNullOrBlank() && !hasAuthorization) {
         base + ("Authorization" to "Bearer $token")
     } else {
         base
+    }
+    return if (commonOptions.terminalOutputEnabled) {
+        headers + (MCP_RAW_STDOUT_HEADER to "1")
+    } else {
+        headers
     }
 }
 

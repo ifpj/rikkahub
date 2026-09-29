@@ -8,16 +8,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.oauth.CustomTabsOAuthAuthorizationLauncher
 import me.rerere.oauth.OAuthHttpClient
 import me.rerere.oauth.OAuthLoopbackCallbackServer
 import me.rerere.rikkahub.AppScope
+import me.rerere.rikkahub.data.ai.tools.SHELL_TERMINAL_OUTPUT_METADATA_KEY
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.files.FilesManager
@@ -101,7 +106,12 @@ class McpManager(
             }
     }
 
-    suspend fun callTool(serverId: Uuid, toolName: String, args: JsonObject): List<UIMessagePart> {
+    suspend fun callTool(
+        serverId: Uuid,
+        toolName: String,
+        args: JsonObject,
+        terminalOutputEnabled: Boolean = false,
+    ): List<UIMessagePart> {
         val result = try {
             sessionRegistry.callTool(serverId, toolName, args)
         } catch (e: CancellationException) {
@@ -112,7 +122,10 @@ class McpManager(
         return result["content"]?.jsonArray.orEmpty().map { content ->
             val obj = content.jsonObject
             when (obj["type"]?.jsonPrimitive?.contentOrNull) {
-                "text" -> UIMessagePart.Text(obj["text"]?.jsonPrimitive?.contentOrNull.orEmpty())
+                "text" -> mcpTextPart(
+                    obj["text"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    terminalOutputEnabled,
+                )
                 "image" -> convertImageContentToFilePart(
                     data = obj["data"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     mimeType = obj["mimeType"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream",
@@ -156,4 +169,24 @@ class McpManager(
         )
         return UIMessagePart.Image(url = filesManager.getFile(entity).toUri().toString())
     }
+}
+
+internal fun mcpTextPart(text: String, terminalOutputEnabled: Boolean): UIMessagePart.Text {
+    if (!terminalOutputEnabled) return UIMessagePart.Text(text)
+    val result = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+        ?: return UIMessagePart.Text(text)
+    val raw = (result["raw_stdout"] as? JsonPrimitive)?.contentOrNull
+    val cleaned = if (result.containsKey("raw_stdout")) {
+        JsonObject(result.filterKeys { it != "raw_stdout" }).toString()
+    } else {
+        text
+    }
+    if (!result.containsKey("stdout")) return UIMessagePart.Text(cleaned)
+    return UIMessagePart.Text(
+        text = cleaned,
+        metadata = buildJsonObject {
+            put(MCP_TERMINAL_CARD_METADATA_KEY, true)
+            if (raw != null) put(SHELL_TERMINAL_OUTPUT_METADATA_KEY, raw)
+        },
+    )
 }

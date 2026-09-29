@@ -1,5 +1,6 @@
 mod pty;
 mod session;
+mod terminal_text;
 
 use axum::{
     extract::{Request, State},
@@ -26,6 +27,7 @@ use serde_json::{json, Value};
 use std::{borrow::Cow, net::SocketAddr, sync::Arc};
 
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const RAW_STDOUT_HEADER: &str = "x-shell-mcp-raw-stdout";
 
 #[derive(Debug, Parser)]
 #[command(
@@ -108,15 +110,30 @@ impl ServerHandler for ShellMcpServer {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<rmcp::RoleServer>,
+        context: RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
+        let include_raw = context
+            .extensions
+            .get::<axum::http::request::Parts>()
+            .and_then(|parts| parts.headers.get(RAW_STDOUT_HEADER))
+            .is_some_and(|value| value == "1");
         let args = request
             .arguments
             .map(Value::Object)
             .unwrap_or_else(|| json!({}));
         let result = match request.name.as_ref() {
-            "exec_command" => self.state.sessions.execute_command(&args).await,
-            "write_stdin" => self.state.sessions.write_stdin(&args).await,
+            "exec_command" => {
+                self.state
+                    .sessions
+                    .execute_command_with_raw(&args, include_raw)
+                    .await
+            }
+            "write_stdin" => {
+                self.state
+                    .sessions
+                    .write_stdin_with_raw(&args, include_raw)
+                    .await
+            }
             name => {
                 return Err(ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -409,6 +426,58 @@ mod tests {
             let (_, response) = send_request(router.clone(), request).await;
             assert_eq!(response["result"]["isError"], true);
             assert_eq!(response["result"]["content"][0]["text"], expected_error);
+        }
+    }
+
+    #[tokio::test]
+    async fn raw_stdout_header_controls_extra_field_on_tool_calls() {
+        let sessions = session::SessionManager::default();
+        let raw_id = sessions
+            .insert_completed_test_session(0, b"\x1b[31mred\x1b[0m\n")
+            .await;
+        let plain_id = sessions
+            .insert_completed_test_session(0, b"\x1b[32mgreen\x1b[0m\n")
+            .await;
+        let router = build_router(AppState {
+            token: None,
+            sessions,
+        });
+
+        for (id, include_raw, expected) in [(raw_id, true, "red\n"), (plain_id, false, "green\n")] {
+            let body = json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {
+                    "name": "write_stdin", "arguments": { "session_id": id.to_string() },
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                        "io.modelcontextprotocol/clientInfo": { "name": "test", "version": "1.0" },
+                        "io.modelcontextprotocol/clientCapabilities": {}
+                    }
+                }
+            });
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("host", "localhost")
+                .header("content-type", "application/json")
+                .header("accept", "application/json, text/event-stream")
+                .header("mcp-protocol-version", "2026-07-28")
+                .header("mcp-method", "tools/call")
+                .header("mcp-name", "write_stdin");
+            if include_raw {
+                request = request.header(RAW_STDOUT_HEADER, "1");
+            }
+            let (_, response) = send_request(
+                router.clone(),
+                request.body(Body::from(body.to_string())).unwrap(),
+            )
+            .await;
+            let text = response["result"]["content"][0]["text"]
+                .as_str()
+                .expect("text tool result");
+            let output: Value = serde_json::from_str(text).unwrap();
+            assert_eq!(output["stdout"], expected);
+            assert_eq!(output.get("raw_stdout").is_some(), include_raw);
         }
     }
 

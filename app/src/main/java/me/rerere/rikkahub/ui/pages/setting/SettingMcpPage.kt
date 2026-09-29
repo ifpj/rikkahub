@@ -739,6 +739,25 @@ private fun McpCommonOptionsConfigure(
         HorizontalDivider()
 
         FormItem(
+            label = { Text("终端输出联动") },
+            description = { Text("仅为兼容的 MCP 服务请求原始终端输出；界面显示颜色，发送给 AI 的内容保持干净。") },
+            tail = {
+                Switch(
+                    checked = config.commonOptions.terminalOutputEnabled,
+                    onCheckedChange = { enabled ->
+                        update(
+                            config.clone(
+                                commonOptions = config.commonOptions.copy(terminalOutputEnabled = enabled)
+                            )
+                        )
+                    },
+                )
+            },
+        )
+
+        HorizontalDivider()
+
+        FormItem(
             label = {
                 Text(stringResource(R.string.setting_mcp_page_disable_tool_prefix))
             },
@@ -1194,6 +1213,7 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
         val disableToolNamePrefix = obj["disableToolNamePrefix"]?.jsonPrimitive?.booleanOrNull ?: false
         val skipStartupInitialization =
             obj["skipStartupInitialization"]?.jsonPrimitive?.booleanOrNull ?: false
+        val terminalOutputEnabled = obj["terminalOutputEnabled"]?.jsonPrimitive?.booleanOrNull ?: false
         val enable = obj["enable"]?.jsonPrimitive?.booleanOrNull ?: true
         val headers = obj["headers"]?.jsonObject?.entries?.map { (k, v) ->
             k to (v.jsonPrimitive.contentOrNull ?: "")
@@ -1211,6 +1231,7 @@ private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
             enable = enable,
             name = name,
             skipStartupInitialization = skipStartupInitialization,
+            terminalOutputEnabled = terminalOutputEnabled,
             disableToolNamePrefix = disableToolNamePrefix,
             headers = headers,
             tools = tools,
@@ -1241,6 +1262,9 @@ private fun buildMcpServersJson(configs: List<McpServerConfig>): String {
                     }
                     if (config.commonOptions.skipStartupInitialization) {
                         put("skipStartupInitialization", true)
+                    }
+                    if (config.commonOptions.terminalOutputEnabled) {
+                        put("terminalOutputEnabled", true)
                     }
                     if (config.commonOptions.disableToolNamePrefix) {
                         put("disableToolNamePrefix", true)

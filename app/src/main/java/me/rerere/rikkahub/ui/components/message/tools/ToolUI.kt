@@ -22,11 +22,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.booleanOrNull
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Tools
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.mcp.MCP_TERMINAL_CARD_METADATA_KEY
 import me.rerere.rikkahub.ui.components.richtext.HighlightCodeBlock
 import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
 import me.rerere.rikkahub.ui.components.ui.FormItem
@@ -113,6 +115,13 @@ object ToolUIRegistry {
 
     /** 查找工具对应的渲染器, 未注册时返回默认渲染器 */
     fun resolve(toolName: String): ToolUIRenderer = renderers[toolName] ?: DefaultToolUIRenderer
+
+    fun resolve(tool: UIMessagePart.Tool): ToolUIRenderer {
+        val terminalCard = tool.output.filterIsInstance<UIMessagePart.Text>().any { part ->
+            part.metadata?.get(MCP_TERMINAL_CARD_METADATA_KEY)?.jsonPrimitiveOrNull?.booleanOrNull == true
+        }
+        return if (terminalCard) ShellToolUI else resolve(tool.toolName)
+    }
 }
 
 internal fun JsonElement?.getStringContent(key: String): String? =

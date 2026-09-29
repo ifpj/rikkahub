@@ -107,7 +107,14 @@ class ChatToolFactory(
                     description = tool.description ?: "",
                     parameters = { tool.inputSchema },
                     needsApproval = { tool.needsApproval },
-                    execute = { mcpManager.callTool(server.id, tool.name, it.jsonObject) },
+                    execute = {
+                        mcpManager.callTool(
+                            server.id,
+                            tool.name,
+                            it.jsonObject,
+                            server.commonOptions.terminalOutputEnabled,
+                        )
+                    },
                 )
             )
         }
