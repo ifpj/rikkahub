@@ -14,5 +14,5 @@ local.properties
 .local-tools
 .android-sdk
 .gradle-home
-termux-mcp/target/
+target/
 .pnpm-store

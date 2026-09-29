@@ -684,8 +684,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "rikkahub-shell-mcp"
-version = "0.2.0"
+name = "shell-mcp"
+version = "0.3.0"
 dependencies = [
  "axum",
  "clap",
