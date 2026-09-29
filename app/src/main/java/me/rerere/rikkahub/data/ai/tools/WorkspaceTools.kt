@@ -321,53 +321,12 @@ private fun createShellWriteStdinTool(
         Continue an existing workspace_exec_command PTY session. Use empty chars to poll output,
         chars to send input, interrupt for Ctrl+C, close_stdin for EOF, or terminate to stop the process.
     """.trimIndent().replace("\n", " "),
-    parameters = {
-        InputSchema.Obj(
-            properties = buildJsonObject {
-                put("session_id", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Session ID returned by workspace_exec_command")
-                })
-                put("chars", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Text to write to the process stdin")
-                })
-                put(SHELL_YIELD_TIME_KEY, buildJsonObject {
-                    put("type", "integer")
-                    put(
-                        "description",
-                        "How long to wait for output after writing or polling. Defaults to " +
-                            "$SHELL_INITIAL_YIELD_MILLIS, max $SHELL_YIELD_MAX_MILLIS."
-                    )
-                })
-                put("close_stdin", buildJsonObject {
-                    put("type", "boolean")
-                    put("description", "Close stdin after writing. Defaults to false.")
-                })
-                put("interrupt", buildJsonObject {
-                    put("type", "boolean")
-                    put("description", "Send Ctrl+C/SIGINT to the PTY foreground process. Defaults to false.")
-                })
-                put("terminate", buildJsonObject {
-                    put("type", "boolean")
-                    put("description", "Forcefully terminate the process. Defaults to false.")
-                })
-                put("rows", buildJsonObject {
-                    put("type", "integer")
-                    put("description", "New PTY height; columns must also be provided.")
-                })
-                put("columns", buildJsonObject {
-                    put("type", "integer")
-                    put("description", "New PTY width; rows must also be provided.")
-                })
-            },
-            required = listOf("session_id"),
-        )
-    },
+    parameters = ::workspaceWriteStdinSchema,
     needsApproval = { false },
     execute = {
         val params = it.jsonObject
-        val sessionId = params.string("session_id") ?: error("session_id is required")
+        val sessionId = params.string("session_id")?.takeIf { value -> value.isNotBlank() }
+            ?: error("missing required param: session_id")
         val chars = params.string("chars")
         val yieldMillis = params.string(SHELL_YIELD_TIME_KEY)?.toLongOrNull()
             ?.coerceIn(0L, SHELL_YIELD_MAX_MILLIS)
@@ -396,6 +355,48 @@ private fun createShellWriteStdinTool(
         )
         result.toMessageParts()
     },
+)
+
+internal fun workspaceWriteStdinSchema() = InputSchema.Obj(
+    properties = buildJsonObject {
+        put("session_id", buildJsonObject {
+            put("type", "string")
+            put("description", "Session ID returned by workspace_exec_command")
+        })
+        put("chars", buildJsonObject {
+            put("type", "string")
+            put("description", "Text to write to the process stdin")
+        })
+        put(SHELL_YIELD_TIME_KEY, buildJsonObject {
+            put("type", "integer")
+            put(
+                "description",
+                "How long to wait for output after writing or polling. Defaults to " +
+                    "$SHELL_INITIAL_YIELD_MILLIS, max $SHELL_YIELD_MAX_MILLIS."
+            )
+        })
+        put("close_stdin", buildJsonObject {
+            put("type", "boolean")
+            put("description", "Close stdin after writing. Defaults to false.")
+        })
+        put("interrupt", buildJsonObject {
+            put("type", "boolean")
+            put("description", "Send Ctrl+C/SIGINT to the PTY foreground process. Defaults to false.")
+        })
+        put("terminate", buildJsonObject {
+            put("type", "boolean")
+            put("description", "Forcefully terminate the process. Defaults to false.")
+        })
+        put("rows", buildJsonObject {
+            put("type", "integer")
+            put("description", "New PTY height; columns must also be provided.")
+        })
+        put("columns", buildJsonObject {
+            put("type", "integer")
+            put("description", "New PTY width; rows must also be provided.")
+        })
+    },
+    required = listOf("session_id"),
 )
 
 private fun kotlinx.serialization.json.JsonObject.string(name: String): String? =
