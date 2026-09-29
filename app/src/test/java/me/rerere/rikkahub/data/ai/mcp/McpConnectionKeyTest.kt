@@ -49,6 +49,28 @@ class McpConnectionKeyTest {
     }
 
     @Test
+    fun `terminal output switch owns the raw output header and reconnects`() {
+        assertEquals(false, base.commonOptions.terminalOutputEnabled)
+        assertEquals(false, base.resolvedHeaders().any { it.first == MCP_RAW_STDOUT_HEADER })
+
+        val enabled = base.copy(
+            commonOptions = base.commonOptions.copy(terminalOutputEnabled = true)
+        )
+        assertEquals(listOf(MCP_RAW_STDOUT_HEADER to "1"), enabled.resolvedHeaders())
+        assertNotEquals(base.connectionKey(), enabled.connectionKey())
+
+        val spoofed = base.copy(
+            commonOptions = base.commonOptions.copy(
+                headers = listOf("x-shell-mcp-raw-stdout" to "1")
+            )
+        )
+        assertEquals(
+            false,
+            spoofed.resolvedHeaders().any { it.first.equals(MCP_RAW_STDOUT_HEADER, ignoreCase = true) }
+        )
+    }
+
+    @Test
     fun `oauth token affects connection key unless manual authorization header wins`() {
         val oauth = McpOAuthState(enabled = true, accessToken = "oauth-token")
         val withOAuth = base.copy(commonOptions = base.commonOptions.copy(oauth = oauth))

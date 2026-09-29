@@ -106,7 +106,7 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
         return
     }
 
-    val renderer = remember(tool.toolName) { ToolUIRegistry.resolve(tool.toolName) }
+    val renderer = remember(tool) { ToolUIRegistry.resolve(tool) }
     val outputJson = remember(tool) {
         if (tool.isExecuted) {
             runCatching {
