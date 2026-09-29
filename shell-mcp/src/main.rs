@@ -412,10 +412,40 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
     let max_output = bounded_usize(args, "max_output_chars", DEFAULT_MAX_OUTPUT, MAX_OUTPUT);
     let yield_ms = bounded_u64(args, "yield_time_ms", DEFAULT_YIELD_MS, MAX_YIELD_MS);
     let chars = args.get("chars").and_then(Value::as_str);
-    if chars.is_some_and(|chars| !chars.trim().is_empty()) && state_entry.exit_code.is_none() {
+    if !has_session(state, &name).await {
+        if chars.is_some_and(|chars| !chars.trim().is_empty()) {
+            return Err(ServerError::message(format!(
+                "Shell session {session_id} cannot accept input because it has ended"
+            )));
+        }
+        let output = poll_session(state, session_id, max_output).await?;
+        return Ok(format_session_result(session_id, output));
+    }
+    let interrupt = args
+        .get("interrupt")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if (chars.is_some_and(|chars| !chars.trim().is_empty()) || interrupt)
+        && state_entry.exit_code.is_none()
+    {
         // A command may have finished after the preceding poll. Refresh its
-        // completion before deciding whether chars are stdin or a new command.
-        let snapshot = capture_pane(state, &name).await?;
+        // completion before deciding whether chars are stdin or a new command,
+        // or whether interrupt still has a foreground command to stop.
+        let snapshot = match capture_pane(state, &name).await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                if has_session(state, &name).await {
+                    return Err(error);
+                }
+                if chars.is_some_and(|chars| !chars.trim().is_empty()) {
+                    return Err(ServerError::message(format!(
+                        "Shell session {session_id} cannot accept input because it has ended"
+                    )));
+                }
+                let output = poll_session(state, session_id, max_output).await?;
+                return Ok(format_session_result(session_id, output));
+            }
+        };
         if let Some(code) = parse_exit_code(&snapshot, state_entry.current_marker) {
             update_exit_status(state, session_id, code, false).await;
             state_entry.exit_code = Some(code);
@@ -453,16 +483,19 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
                 persist_session(&session_id, &updated);
                 spawn_timeout_watcher(state.clone(), session_id, current_marker);
             }
+            state_entry.exit_code = None;
         } else {
             send_text(state, &name, chars).await?;
         }
     }
-    if args
-        .get("interrupt")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        send_key(state, &name, "C-c").await?;
+    if interrupt && state_entry.exit_code.is_none() {
+        if let Err(error) = send_key(state, &name, "C-c").await {
+            if has_session(state, &name).await {
+                return Err(error);
+            }
+            let output = poll_session(state, session_id, max_output).await?;
+            return Ok(format_session_result(session_id, output));
+        }
     }
     if args
         .get("close_stdin")
@@ -476,7 +509,14 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
-        kill_session(state, &name).await?;
+        let pending = poll_session(state, session_id, max_output).await?;
+        if let Err(error) = kill_session(state, &name).await {
+            if has_session(state, &name).await {
+                return Err(error);
+            }
+            let output = poll_session(state, session_id, max_output).await?;
+            return Ok(format_session_result(session_id, output));
+        }
         {
             let mut sessions = state.sessions.lock().await;
             if let Some(entry) = sessions.get_mut(&session_id) {
@@ -491,7 +531,7 @@ async fn write_stdin(state: &AppState, args: &Value) -> Result<String, ServerErr
             session_id,
             PollResult {
                 status: SessionStatus::Completed(137),
-                output: String::new(),
+                output: pending.output,
                 timed_out: false,
             },
         ));
@@ -548,28 +588,18 @@ async fn poll_session(
 ) -> Result<PollResult, ServerError> {
     let session = ensure_session(state, session_id).await?;
     if !has_session(state, &session.name).await {
-        let fallback_code = session.exit_code.or(Some(1));
-        let mut updated = None;
-        {
-            let mut sessions = state.sessions.lock().await;
-            if let Some(entry) = sessions.get_mut(&session_id) {
-                if entry.exit_code.is_none() {
-                    entry.exit_code = fallback_code;
-                }
-                entry.last_active_ms = now_ms();
-                updated = Some(entry.clone());
-            }
-        }
-        if let Some(updated) = updated {
-            persist_session(&session_id, &updated);
-        }
-        return Ok(PollResult {
-            status: SessionStatus::Completed(fallback_code.unwrap_or(1)),
-            output: String::new(),
-            timed_out: session.timed_out,
-        });
+        return Ok(poll_missing_session(state, session_id, &session).await);
     }
-    let snapshot = capture_pane(state, &session.name).await?;
+    let snapshot = match capture_pane(state, &session.name).await {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            // tmux may disappear between has-session and capture-pane.
+            if !has_session(state, &session.name).await {
+                return Ok(poll_missing_session(state, session_id, &session).await);
+            }
+            return Err(error);
+        }
+    };
     let delta = snapshot_delta(&session.last_snapshot, &snapshot);
     let completion = parse_exit_code(&snapshot, session.current_marker);
     let mut refreshed = None;
@@ -598,6 +628,33 @@ async fn poll_session(
         output: limit_output(&strip_marker(&delta), max_output),
         timed_out: session.timed_out,
     })
+}
+
+async fn poll_missing_session(
+    state: &AppState,
+    session_id: Uuid,
+    session: &SessionState,
+) -> PollResult {
+    let code = session.exit_code.unwrap_or(1);
+    let mut updated = None;
+    {
+        let mut sessions = state.sessions.lock().await;
+        if let Some(entry) = sessions.get_mut(&session_id) {
+            if entry.exit_code.is_none() {
+                entry.exit_code = Some(code);
+            }
+            entry.last_active_ms = now_ms();
+            updated = Some(entry.clone());
+        }
+    }
+    if let Some(updated) = updated {
+        persist_session(&session_id, &updated);
+    }
+    PollResult {
+        status: SessionStatus::Completed(code),
+        output: String::new(),
+        timed_out: session.timed_out,
+    }
 }
 
 #[derive(Debug)]
@@ -635,19 +692,13 @@ fn format_session_result(session_id: Uuid, result: PollResult) -> String {
 }
 
 async fn ensure_session(state: &AppState, session_id: Uuid) -> Result<SessionState, ServerError> {
-    let session = state
+    state
         .sessions
         .lock()
         .await
         .get(&session_id)
         .cloned()
-        .ok_or_else(|| ServerError::message(format!("Shell session {session_id} is not known")))?;
-    if !has_session(state, &session.name).await && session.exit_code.is_none() {
-        return Err(ServerError::message(format!(
-            "Shell session {session_id} is not running"
-        )));
-    }
-    Ok(session)
+        .ok_or_else(|| ServerError::message(format!("Shell session {session_id} is not known")))
 }
 
 async fn session_operation_lock(
@@ -1323,6 +1374,82 @@ mod tests {
         assert_eq!(restored.last_active_ms, 123);
     }
 
+    #[test]
+    fn write_stdin_requires_session_id_and_reports_missing_id_briefly() {
+        let schema = write_stdin_tool();
+        assert_eq!(
+            schema.input_schema.get("required"),
+            Some(&json!(["session_id"]))
+        );
+        assert_eq!(
+            required_uuid(&json!({}), "session_id").unwrap_err().0,
+            "session_id is required"
+        );
+    }
+
+    fn unavailable_tmux_state(exit_code: Option<i32>) -> (AppState, Uuid) {
+        let session_id = Uuid::new_v4();
+        let session = sample_session(exit_code, now_ms());
+        let state = AppState {
+            config: Arc::new(Config {
+                token: None,
+                tmux: "nonexistent-shell-mcp-test-tmux".into(),
+                tmux_socket: "test".into(),
+            }),
+            sessions: Arc::new(Mutex::new(HashMap::from([(session_id, session)]))),
+        };
+        (state, session_id)
+    }
+
+    #[tokio::test]
+    async fn controls_on_terminated_session_are_idempotent() {
+        let (state, session_id) = unavailable_tmux_state(Some(137));
+        let args = json!({
+            "session_id": session_id.to_string(),
+            "interrupt": true,
+            "terminate": true,
+            "chars": "",
+            "yield_time_ms": 0,
+        });
+        let first: Value =
+            serde_json::from_str(&write_stdin(&state, &args).await.unwrap()).unwrap();
+        let second: Value =
+            serde_json::from_str(&write_stdin(&state, &args).await.unwrap()).unwrap();
+        let polled: Value = serde_json::from_str(
+            &write_stdin(
+                &state,
+                &json!({ "session_id": session_id.to_string(), "chars": "", "yield_time_ms": 0 }),
+            )
+            .await
+            .unwrap(),
+        )
+        .unwrap();
+        remove_state_file(&session_id);
+
+        assert_eq!(first, second);
+        assert_eq!(first, polled);
+        assert_eq!(first["status"], "completed");
+        assert_eq!(first["exit_code"], 137);
+    }
+
+    #[tokio::test]
+    async fn polling_disappeared_session_returns_completed() {
+        let (state, session_id) = unavailable_tmux_state(None);
+        let result: Value = serde_json::from_str(
+            &write_stdin(
+                &state,
+                &json!({ "session_id": session_id.to_string(), "chars": "", "yield_time_ms": 0 }),
+            )
+            .await
+            .unwrap(),
+        )
+        .unwrap();
+        remove_state_file(&session_id);
+
+        assert_eq!(result["status"], "completed");
+        assert_eq!(result["exit_code"], 1);
+    }
+
     fn test_router() -> Router {
         build_router(AppState {
             config: Arc::new(Config {
@@ -1421,11 +1548,43 @@ mod tests {
             .header("mcp-name", "exec_command")
             .body(Body::from(body.to_string()))
             .unwrap();
-        let (_, response) = send_request(router, request).await;
+        let (_, response) = send_request(router.clone(), request).await;
         assert_eq!(response["result"]["isError"], true);
         assert_eq!(
             response["result"]["content"][0]["text"],
             "command must not be empty"
+        );
+
+        let missing_session_id = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "write_stdin",
+                "arguments": {},
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": { "name": "test", "version": "1.0" },
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        });
+        let request = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("host", "localhost")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("mcp-protocol-version", "2026-07-28")
+            .header("mcp-method", "tools/call")
+            .header("mcp-name", "write_stdin")
+            .body(Body::from(missing_session_id.to_string()))
+            .unwrap();
+        let (_, response) = send_request(router, request).await;
+        assert_eq!(response["result"]["isError"], true);
+        assert_eq!(
+            response["result"]["content"][0]["text"],
+            "session_id is required"
         );
     }
 
