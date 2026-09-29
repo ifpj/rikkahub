@@ -324,7 +324,8 @@ object ShellToolUI : ToolUIRenderer {
         return stringResource(R.string.tool_ui_shell, truncated)
     }
 
-    override fun hasSummary(context: ToolUIContext): Boolean = context.content != null
+    override fun hasSummary(context: ToolUIContext): Boolean =
+        context.content?.jsonObjectOrNull?.containsKey("stdout") == true
 
     @Composable
     override fun Summary(context: ToolUIContext) {
@@ -360,7 +361,7 @@ object ShellToolUI : ToolUIRenderer {
     @Composable
     override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
         val content = context.content
-        if (content == null) {
+        if (content == null || content.jsonObjectOrNull?.containsKey("stdout") != true) {
             DefaultToolPreview(context = context)
             return
         }
