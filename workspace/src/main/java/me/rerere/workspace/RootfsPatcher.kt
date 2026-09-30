@@ -4,6 +4,29 @@ import java.io.File
 import java.nio.file.Files
 
 class RootfsPatcher {
+    /** Create a visible directory entry for an enabled bind mount, without removing existing files. */
+    fun ensureMountPointDirectory(linuxDir: File, target: String) {
+        require(linuxDir.isDirectory) { "Rootfs is not installed" }
+        require(target.startsWith('/') && '\u0000' !in target && '\\' !in target) {
+            "Invalid mount point: $target"
+        }
+        val segments = target.split('/').filter { it.isNotEmpty() }
+        require(segments.none { it == "." || it == ".." }) { "Invalid mount point: $target" }
+        val root = linuxDir.canonicalFile.toPath()
+        var directory = root.toFile()
+        segments.forEach { segment ->
+            directory = File(directory, segment).canonicalFile
+            require(directory.toPath().startsWith(root)) { "Mount point escapes rootfs: $target" }
+            check(directory.isDirectory || directory.mkdir()) { "Cannot create mount point: $target" }
+            // PRoot may have left inaccessible empty parent directories for virtual mount points.
+            check(directory.canRead() || directory.setReadable(true, true)) { "Cannot read mount point: $target" }
+            check(directory.canWrite() || directory.setWritable(true, true)) { "Cannot write mount point: $target" }
+            check(directory.canExecute() || directory.setExecutable(true, true)) {
+                "Cannot traverse mount point: $target"
+            }
+        }
+    }
+
     fun patch(
         linuxDir: File,
         options: RootfsPatchOptions = RootfsPatchOptions(),
