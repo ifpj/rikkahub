@@ -24,10 +24,11 @@ use rmcp::{
     ErrorData, ServerHandler,
 };
 use serde_json::{json, Value};
-use std::{borrow::Cow, net::SocketAddr, sync::Arc};
+use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
 
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const RAW_STDOUT_HEADER: &str = "x-shell-mcp-raw-stdout";
+const MCP_SESSION_IDLE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Debug, Parser)]
 #[command(
@@ -201,7 +202,7 @@ fn build_router(state: AppState) -> Router {
                 state: mcp_state.clone(),
             })
         },
-        Arc::new(LocalSessionManager::default()),
+        Arc::new(mcp_session_manager()),
         StreamableHttpServerConfig::default()
             .with_legacy_session_mode(true)
             .with_json_response(true),
@@ -214,6 +215,12 @@ fn build_router(state: AppState) -> Router {
             authorize_request,
         ))
         .with_state(state)
+}
+
+fn mcp_session_manager() -> LocalSessionManager {
+    let mut manager = LocalSessionManager::default();
+    manager.session_config.keep_alive = Some(MCP_SESSION_IDLE_TTL);
+    manager
 }
 
 async fn health() -> Response {
@@ -327,6 +334,14 @@ mod tests {
             token: None,
             sessions: session::SessionManager::default(),
         })
+    }
+
+    #[test]
+    fn legacy_mcp_session_expires_after_one_day_of_inactivity() {
+        assert_eq!(
+            mcp_session_manager().session_config.keep_alive,
+            Some(Duration::from_secs(24 * 60 * 60))
+        );
     }
 
     #[test]
