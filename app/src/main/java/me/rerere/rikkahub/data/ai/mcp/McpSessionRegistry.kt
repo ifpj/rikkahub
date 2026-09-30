@@ -47,7 +47,7 @@ private class McpSession(initialConfig: McpServerConfig) {
 
     val lifecycleMutex = Mutex()
     var reconnectJob: Job? = null
-    var healthJob: Job? = null
+    var closeWatchJob: Job? = null
     var reconnectAttempt: Int = 0
 }
 
@@ -271,8 +271,8 @@ internal class McpSessionRegistry(
             }
 
             statusStore.update(config.id, McpStatus.Connecting)
-            session.healthJob?.cancel()
-            session.healthJob = null
+            session.closeWatchJob?.cancel()
+            session.closeWatchJob = null
             val oldClient = session.client
             session.client = null
             session.connectedConfig = null
@@ -298,14 +298,9 @@ internal class McpSessionRegistry(
                 session.client = connectedClient
                 session.reconnectAttempt = 0
                 statusStore.update(config.id, McpStatus.Connected)
-                session.healthJob = appScope.launch {
-                    while (true) {
-                        delay(2_000)
-                        if (connectedClient.isClosed()) {
-                            requestReconnect(config.id, connectedClient)
-                            break
-                        }
-                    }
+                session.closeWatchJob = appScope.launch {
+                    connectedClient.awaitClosed()
+                    requestReconnect(config.id, connectedClient)
                 }
                 Log.i(
                     TAG,
@@ -458,8 +453,8 @@ internal class McpSessionRegistry(
         session.lifecycleMutex.withLock {
             session.reconnectJob?.cancel()
             session.reconnectJob = null
-            session.healthJob?.cancel()
-            session.healthJob = null
+            session.closeWatchJob?.cancel()
+            session.closeWatchJob = null
             session.reconnectAttempt = 0
             val sdkClient = session.client
             session.client = null
