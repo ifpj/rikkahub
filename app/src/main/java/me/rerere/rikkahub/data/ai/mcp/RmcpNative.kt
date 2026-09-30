@@ -1,8 +1,10 @@
 package me.rerere.rikkahub.data.ai.mcp
 
+import android.util.Base64
 import androidx.annotation.Keep
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -16,7 +18,19 @@ import java.io.Closeable
 import java.security.KeyStore
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
-import android.util.Base64
+import kotlin.coroutines.resumeWithException
+
+@Keep
+internal interface RmcpCallCallback {
+    @Keep
+    fun onComplete(resultJson: String?, error: String?)
+}
+
+@Keep
+internal interface RmcpCloseCallback {
+    @Keep
+    fun onClosed()
+}
 
 /** JNI boundary for the pinned rmcp 3.5.0 client. All blocking calls run off the UI thread. */
 @Keep
@@ -25,13 +39,17 @@ internal object RmcpNative {
         System.loadLibrary("rikkahub_rmcp")
     }
 
-    external fun connect(url: String, name: String, headersJson: String, certsJson: String): Long
+    external fun connect(
+        url: String,
+        name: String,
+        headersJson: String,
+        certsJson: String,
+        onClosed: RmcpCloseCallback,
+    ): Long
     external fun listTools(id: Long): String
     external fun protocolVersion(id: Long): String
-    external fun beginCall(id: Long, name: String, argumentsJson: String): Long
-    external fun pollCall(callId: Long): String?
+    external fun beginCall(id: Long, name: String, argumentsJson: String, onComplete: RmcpCallCallback): Long
     external fun cancelCall(callId: Long)
-    external fun isClosed(id: Long): Boolean
     external fun close(id: Long)
 }
 
@@ -41,7 +59,10 @@ internal data class RmcpTool(
     val inputSchema: InputSchema,
 )
 
-internal class RmcpClient private constructor(private val id: Long) : Closeable {
+internal class RmcpClient private constructor(
+    private val id: Long,
+    private val closed: CompletableDeferred<Unit>,
+) : Closeable {
     companion object {
         private val trustedCertificates: String by lazy {
             val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
@@ -60,9 +81,19 @@ internal class RmcpClient private constructor(private val id: Long) : Closeable 
             val headers = config.resolvedHeaders().map { (name, value) ->
                 JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(name), kotlinx.serialization.json.JsonPrimitive(value)))
             }
-            RmcpClient(RmcpNative.connect(
-                config.url, config.commonOptions.name, JsonArray(headers).toString(), trustedCertificates,
-            ))
+            val closed = CompletableDeferred<Unit>()
+            val callback = object : RmcpCloseCallback {
+                override fun onClosed() {
+                    closed.complete(Unit)
+                }
+            }
+            RmcpClient(
+                RmcpNative.connect(
+                    config.url, config.commonOptions.name, JsonArray(headers).toString(), trustedCertificates,
+                    callback,
+                ),
+                closed,
+            )
         }
     }
 
@@ -82,22 +113,36 @@ internal class RmcpClient private constructor(private val id: Long) : Closeable 
     }
 
     suspend fun callTool(name: String, args: JsonObject): JsonObject = withContext(Dispatchers.IO) {
-        val callId = RmcpNative.beginCall(id, name, args.toString())
-        try {
-            while (true) {
-                val result = RmcpNative.pollCall(callId)
-                if (result != null) return@withContext Json.parseToJsonElement(result).jsonObject
-                delay(100)
+        suspendCancellableCoroutine { continuation ->
+            if (!continuation.isActive) return@suspendCancellableCoroutine
+            val callback = object : RmcpCallCallback {
+                override fun onComplete(resultJson: String?, error: String?) {
+                    val result = runCatching {
+                        if (error != null) throw IllegalStateException(error)
+                        Json.parseToJsonElement(requireNotNull(resultJson)).jsonObject
+                    }
+                    continuation.resumeWith(result)
+                }
             }
-            error("Unreachable")
-        } finally {
-            RmcpNative.cancelCall(callId)
+            val callId = try {
+                RmcpNative.beginCall(id, name, args.toString(), callback)
+            } catch (error: Exception) {
+                continuation.resumeWithException(error)
+                return@suspendCancellableCoroutine
+            }
+            continuation.invokeOnCancellation { RmcpNative.cancelCall(callId) }
         }
     }
 
-    fun isClosed(): Boolean = RmcpNative.isClosed(id)
+    suspend fun awaitClosed() = closed.await()
 
     fun protocolVersion(): String = RmcpNative.protocolVersion(id)
 
-    override fun close() = RmcpNative.close(id)
+    override fun close() {
+        try {
+            RmcpNative.close(id)
+        } finally {
+            closed.complete(Unit)
+        }
+    }
 }
