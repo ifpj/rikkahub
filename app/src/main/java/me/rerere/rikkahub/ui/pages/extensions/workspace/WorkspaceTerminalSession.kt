@@ -16,6 +16,7 @@ import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
 import me.rerere.rikkahub.data.files.FileFolders
+import me.rerere.rikkahub.utils.WorkspaceSharedStorage
 import me.rerere.workspace.RootfsPatchOptions
 import me.rerere.workspace.RootfsPatcher
 import java.io.File
@@ -25,6 +26,7 @@ internal fun createWorkspaceTerminalSession(
     root: String,
     client: TerminalSessionClient,
     shellCompatibilityMode: Boolean,
+    mountSharedStorage: Boolean,
 ): TerminalSession {
     val appContext = context.applicationContext
     val workspaceDir = File(File(appContext.filesDir, "workspaces"), root)
@@ -52,6 +54,9 @@ internal fun createWorkspaceTerminalSession(
         "-b",
         "${builtinSkillsDir.absolutePath}:$BUILTIN_SKILLS_DIR",
     )
+    WorkspaceSharedStorage.bindMounts(appContext, mountSharedStorage, linuxDir).forEach { mount ->
+        args += listOf("-b", "${mount.source.absolutePath}:${mount.target}")
+    }
     listOf("/dev", "/proc", "/sys").forEach { path ->
         if (File(path).exists()) {
             args += "-b"

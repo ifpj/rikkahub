@@ -1,7 +1,10 @@
 package me.rerere.rikkahub.ui.pages.extensions.workspace
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.os.Build
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -62,6 +65,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import kotlinx.coroutines.CancellationException
@@ -90,6 +95,7 @@ import me.rerere.rikkahub.ui.components.ui.RikkaConfirmDialog
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.fileSizeToString
+import me.rerere.rikkahub.utils.WorkspaceSharedStorage
 import me.rerere.rikkahub.utils.plus
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstallStage
@@ -114,6 +120,31 @@ fun WorkspaceDetailPage(id: String) {
     var showInstallDialog by remember { mutableStateOf(false) }
     var previewImageUri by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    val sharedStoragePath = remember { WorkspaceSharedStorage.rootDirectory().absolutePath }
+    var sharedStorageAccess by remember { mutableStateOf(WorkspaceSharedStorage.hasAccess(context)) }
+    var showStoragePermissionDialog by rememberSaveable(id) { mutableStateOf(false) }
+    var pendingStorageEnable by rememberSaveable(id) { mutableStateOf(false) }
+    var storagePermissionError by remember { mutableStateOf<String?>(null) }
+    val onStoragePermissionResult = {
+        sharedStorageAccess = WorkspaceSharedStorage.hasAccess(context)
+        if (pendingStorageEnable) {
+            pendingStorageEnable = false
+            if (sharedStorageAccess) {
+                vm.setMountSharedStorage(true)
+            } else {
+                storagePermissionError = "尚未获得文件访问权限，暂时无法挂载共享存储。"
+            }
+        }
+    }
+    val storageSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { onStoragePermissionResult() }
+    val legacyStorageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { onStoragePermissionResult() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        sharedStorageAccess = WorkspaceSharedStorage.hasAccess(context)
+    }
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -209,6 +240,17 @@ fun WorkspaceDetailPage(id: String) {
                     onInstallRootfs = { showInstallDialog = true },
                     onToolApprovalChange = vm::setToolApproval,
                     onShellCompatibilityModeChange = vm::setShellCompatibilityMode,
+                    sharedStorageAccess = sharedStorageAccess,
+                    sharedStoragePath = sharedStoragePath,
+                    onMountSharedStorageChange = { enabled ->
+                        sharedStorageAccess = WorkspaceSharedStorage.hasAccess(context)
+                        if (enabled && !sharedStorageAccess) {
+                            showStoragePermissionDialog = true
+                        } else {
+                            vm.setMountSharedStorage(enabled)
+                        }
+                    },
+                    onRequestStoragePermission = { showStoragePermissionDialog = true },
                 )
 
                 1 -> WorkspaceFilesPage(
@@ -323,6 +365,56 @@ fun WorkspaceDetailPage(id: String) {
         )
     }
 
+    if (showStoragePermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showStoragePermissionDialog = false },
+            title = { Text("授予文件访问权限") },
+            text = {
+                Text(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        "请在系统设置中允许 RikkaHub“管理所有文件”。授权后，此工作区可通过 $sharedStoragePath 读写当前用户的主共享存储中的真实文件。"
+                    } else {
+                        "请允许 RikkaHub 读写存储。授权后，此工作区可通过 $sharedStoragePath 读写当前用户的主共享存储中的真实文件。"
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showStoragePermissionDialog = false
+                    pendingStorageEnable = true
+                    runCatching {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            try {
+                                storageSettingsLauncher.launch(WorkspaceSharedStorage.permissionIntent(context))
+                            } catch (_: ActivityNotFoundException) {
+                                storageSettingsLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                            }
+                        } else {
+                            legacyStorageLauncher.launch(WorkspaceSharedStorage.legacyPermissions)
+                        }
+                    }.onFailure {
+                        pendingStorageEnable = false
+                        storagePermissionError = "无法打开授权页面，请在系统设置中授予文件访问权限。"
+                    }
+                }) { Text("前往授权") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStoragePermissionDialog = false }) { Text("取消") }
+            },
+        )
+    }
+
+    storagePermissionError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { storagePermissionError = null },
+            title = { Text("文件访问权限") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { storagePermissionError = null }) { Text("确定") }
+            },
+        )
+    }
+
     settingsError?.let { message ->
         AlertDialog(
             onDismissRequest = vm::dismissSettingsError,
@@ -367,6 +459,10 @@ private fun WorkspaceBasicPage(
     onInstallRootfs: () -> Unit,
     onToolApprovalChange: (String, Boolean) -> Unit,
     onShellCompatibilityModeChange: (Boolean) -> Unit,
+    sharedStorageAccess: Boolean,
+    sharedStoragePath: String,
+    onMountSharedStorageChange: (Boolean) -> Unit,
+    onRequestStoragePermission: () -> Unit,
 ) {
     val shellStatus = workspace?.shellStatus
     val installing = installProgress != null || shellStatus == WorkspaceShellStatus.INSTALLING.name
@@ -425,6 +521,31 @@ private fun WorkspaceBasicPage(
                             }
                             installProgress?.let { RootfsProgress(it) }
                         }
+                    },
+                )
+            }
+        }
+
+        item {
+            CardGroup(title = { Text("共享存储") }) {
+                item(
+                    headlineContent = { Text("挂载手机共享存储") },
+                    supportingContent = {
+                        Column {
+                            Text("仅挂载当前用户的主共享存储，手机和工作区路径均为 $sharedStoragePath，可用 ls $sharedStoragePath 查看实际目录。开关变更对新启动的命令和终端生效。")
+                            if (workspace?.mountSharedStorage == true && !sharedStorageAccess) {
+                                TextButton(onClick = onRequestStoragePermission) {
+                                    Text("重新授予文件访问权限")
+                                }
+                            }
+                        }
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = workspace?.mountSharedStorage ?: false,
+                            onCheckedChange = onMountSharedStorageChange,
+                            enabled = workspace != null,
+                        )
                     },
                 )
             }

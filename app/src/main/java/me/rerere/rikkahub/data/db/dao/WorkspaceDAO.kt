@@ -27,6 +27,9 @@ interface WorkspaceDAO {
     @Query("UPDATE workspaces SET shell_compatibility_mode = :enabled, updated_at = :updatedAt WHERE id = :id")
     suspend fun setShellCompatibilityMode(id: String, enabled: Boolean, updatedAt: Long): Int
 
+    @Query("UPDATE workspaces SET mount_shared_storage = :enabled, updated_at = :updatedAt WHERE id = :id")
+    suspend fun setMountSharedStorage(id: String, enabled: Boolean, updatedAt: Long): Int
+
     @Query("DELETE FROM workspaces WHERE id = :id")
     suspend fun deleteById(id: String): Int
 }

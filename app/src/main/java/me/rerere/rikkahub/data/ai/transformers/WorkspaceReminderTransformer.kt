@@ -7,6 +7,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.utils.WorkspaceSharedStorage
 import me.rerere.workspace.WorkspaceShellStatus
 import java.io.ByteArrayOutputStream
 import java.nio.file.Paths
@@ -96,6 +97,10 @@ private fun buildWorkspacePrompt(workspace: WorkspaceEntity, cwd: String? = null
     appendLine("<workspace>")
     appendLine("You have access to a persistent Linux workspace named \"${workspace.name}\", running in a sandboxed proot rootfs environment.")
     appendLine("- The workspace files area is mounted at `/workspace`. Use it as your working directory; files written there persist across turns of this conversation.")
+    if (workspace.mountSharedStorage) {
+        val sharedStoragePath = WorkspaceSharedStorage.rootDirectory().absolutePath
+        appendLine("- The current user's primary shared storage is mounted at `$sharedStoragePath`, at the same path as on the phone. Use `ls $sharedStoragePath` to list its real directories. These are the user's real files; access or modify them only as needed for the user's request.")
+    }
     appendLine("- All paths passed to workspace tools must be absolute and inside the Rootfs (for example `/workspace/notes.md`).")
     appendLine("- Available tools:")
     appendLine("  - `workspace_read_file`: read file contents.")

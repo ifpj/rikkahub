@@ -17,6 +17,52 @@ import java.util.zip.GZIPOutputStream
 
 class ExampleUnitTest {
     @Test
+    fun workspaceSpecificMountsApplyToShellAndFileAccessWithoutLeakingToOtherWorkspaces() {
+        val baseDir = Files.createTempDirectory("workspace-mount-test").toFile()
+        val sharedDir = File(baseDir, "phone-storage").apply { mkdirs() }
+        File(sharedDir, "Download").mkdirs()
+        File(sharedDir, "Download/note.txt").writeText("phone file")
+        // A non-owner user path ensures nested mounts do not assume Android user 0.
+        val mount = WorkspaceBindMount(sharedDir, "/storage/emulated/10")
+        val contexts = mutableListOf<WorkspaceShellContext>()
+        val manager = WorkspaceManager(
+            baseDir = File(baseDir, "workspaces"),
+            shellRunner = object : WorkspaceShellRunner {
+                override fun start(context: WorkspaceShellContext): WorkspaceShellProcess {
+                    contexts += context
+                    return WorkspaceShellProcess.completed(WorkspaceCommandResult(0, "", ""))
+                }
+            },
+        )
+        manager.ensureWorkspace("enabled")
+        manager.ensureWorkspace("disabled")
+
+        manager.executeCommand("enabled", "ls ${mount.target}", additionalBindMounts = listOf(mount))
+        manager.startCommandSession("enabled", "ls ${mount.target}", additionalBindMounts = listOf(mount))
+        manager.executeCommand("disabled", "ls ${mount.target}")
+        assertEquals(listOf(mount), contexts[0].bindMounts)
+        assertEquals(listOf(mount), contexts[1].bindMounts)
+        assertTrue(contexts[1].usePty)
+        assertTrue(contexts[2].bindMounts.isEmpty())
+
+        val output = ByteArrayOutputStream()
+        val sharedFilePath = "${mount.target}/Download/note.txt"
+        manager.exportRootfsFile("enabled", sharedFilePath, output, listOf(mount))
+        assertEquals("phone file", output.toString(Charsets.UTF_8.name()))
+        assertEquals(
+            File(sharedDir, "Download/note.txt").length(),
+            manager.rootfsFileSize("enabled", sharedFilePath, listOf(mount)),
+        )
+        val parentPath = manager.resolveRootfsFile("enabled", "/storage", listOf(mount))
+        assertTrue(parentPath.toPath().startsWith(manager.linuxDir("enabled").toPath()))
+        val otherUserPath = manager.resolveRootfsFile("enabled", "/storage/emulated/11", listOf(mount))
+        assertTrue(otherUserPath.toPath().startsWith(manager.linuxDir("enabled").toPath()))
+        val disabledPath = manager.resolveRootfsFile("disabled", sharedFilePath)
+        assertFalse(disabledPath.exists())
+        assertTrue(disabledPath.toPath().startsWith(manager.linuxDir("disabled").toPath()))
+    }
+
+    @Test
     fun fileOperationsWorkInsideWorkspaceRoot() {
         val root = Files.createTempDirectory("workspace-test").toFile()
         val fileSystem = WorkspaceFileSystem()
@@ -353,6 +399,41 @@ class ExampleUnitTest {
             manager.waitCommandSession("workspace-a", sessionId, yieldMillis = 2_000)
         }
         assertEquals(WorkspaceShellSessionStatus.COMPLETED, terminated.status)
+    }
+
+    @Test
+    fun nestedMountPointDirectoriesStayVisibleAndPreserveWorkspaceFiles() {
+        val linuxDir = Files.createTempDirectory("rootfs-mount-point-test").toFile()
+        val patcher = RootfsPatcher()
+        val target = "/storage/emulated/10"
+
+        patcher.ensureMountPointDirectory(linuxDir, target)
+        assertEquals(listOf("emulated"), File(linuxDir, "storage").list()?.toList())
+        assertEquals(listOf("10"), File(linuxDir, "storage/emulated").list()?.toList())
+        val mountPoint = File(linuxDir, target.removePrefix("/"))
+        assertTrue(mountPoint.isDirectory)
+        assertTrue(mountPoint.list()?.isEmpty() == true)
+
+        val localFile = File(mountPoint, "local-note.txt").apply { writeText("workspace file") }
+        // Re-enabling is idempotent; normal preparation while unmounted never removes these files.
+        patcher.ensureMountPointDirectory(linuxDir, target)
+        patcher.patch(linuxDir)
+        assertEquals("workspace file", localFile.readText())
+    }
+
+    @Test
+    fun mountPointPreparationRejectsTraversalAndDoesNotOverwriteFiles() {
+        val linuxDir = Files.createTempDirectory("rootfs-mount-point-conflict-test").toFile()
+        val patcher = RootfsPatcher()
+        val existingFile = File(linuxDir, "storage").apply { writeText("keep this file") }
+
+        assertThrows(IllegalArgumentException::class.java) {
+            patcher.ensureMountPointDirectory(linuxDir, "/../outside")
+        }
+        assertThrows(IllegalStateException::class.java) {
+            patcher.ensureMountPointDirectory(linuxDir, "/storage/emulated/10")
+        }
+        assertEquals("keep this file", existingFile.readText())
     }
 
     @Test

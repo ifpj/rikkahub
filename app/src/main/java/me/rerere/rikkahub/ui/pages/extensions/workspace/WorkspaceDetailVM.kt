@@ -268,6 +268,20 @@ class WorkspaceDetailVM(
         }
     }
 
+    fun setMountSharedStorage(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.setMountSharedStorage(id, enabled)
+                val workspace = repository.getById(id)
+                _state.update { it.copy(workspace = workspace) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _settingsError.value = error.message.orEmpty()
+            }
+        }
+    }
+
     fun setToolApproval(toolName: String, needsApproval: Boolean) {
         viewModelScope.launch {
             val workspace = state.value.workspace ?: return@launch

@@ -7,7 +7,13 @@
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
   <uses-permission
     android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-    android:maxSdkVersion="28" />
+    android:maxSdkVersion="29" />
+  <uses-permission
+    android:name="android.permission.READ_EXTERNAL_STORAGE"
+    android:maxSdkVersion="29" />
+  <uses-permission
+    android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+    tools:ignore="ScopedStorage" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -48,6 +54,7 @@
   <application
     android:name=".RikkaHubApp"
     android:largeHeap="true"
+    android:requestLegacyExternalStorage="true"
     android:allowBackup="true"
     android:appCategory="productivity"
     android:dataExtractionRules="@xml/data_extraction_rules"
