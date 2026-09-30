@@ -55,6 +55,7 @@ cargo ndk -t arm64-v8a build --release
 ## 说明
 
 - 服务默认只监听 `127.0.0.1`。
+- 旧版有状态 MCP 连接的 `Mcp-Session-Id` 在连续闲置 1 天后失效；它与下述 Shell 命令会话的超时分别计算。
 - 建议始终配置随机 Token；未配置 Token 时程序会打印警告。
 - `write_stdin` 的空 `chars` 用于继续等待和轮询输出。
 - `yield_time_ms` 是最长等待时间；有新输出或命令结束时会提前返回。
