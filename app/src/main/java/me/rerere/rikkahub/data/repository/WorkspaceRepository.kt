@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.repository
 
+import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,7 @@ import me.rerere.rikkahub.data.model.SshWorkspaceDraft
 import me.rerere.rikkahub.data.model.SshWorkspaceSettings
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.SecretCipher
+import me.rerere.rikkahub.utils.WorkspaceSharedStorage
 import me.rerere.workspace.DEFAULT_TERMINAL_COLUMNS
 import me.rerere.workspace.DEFAULT_TERMINAL_ROWS
 import me.rerere.workspace.RootfsInstallProgress
@@ -52,6 +54,7 @@ class WorkspaceRepository(
     private val rootfsInstaller: RootfsInstaller,
     private val settingsStore: SettingsStore,
     private val sshPool: SshConnectionPool,
+    private val context: Context,
 ) {
     fun listFlow(): Flow<List<WorkspaceEntity>> = dao.listFlow()
 
@@ -165,6 +168,11 @@ class WorkspaceRepository(
 
     suspend fun setShellCompatibilityMode(id: String, enabled: Boolean) {
         dao.setShellCompatibilityMode(id, enabled, System.currentTimeMillis())
+    }
+
+    suspend fun setMountSharedStorage(id: String, enabled: Boolean) {
+        if (enabled) check(WorkspaceSharedStorage.hasAccess(context)) { "请先授予文件访问权限" }
+        dao.setMountSharedStorage(id, enabled, System.currentTimeMillis())
     }
 
     suspend fun setToolApproval(id: String, toolName: String, needsApproval: Boolean): Boolean {
@@ -373,6 +381,8 @@ class WorkspaceRepository(
                 yieldMillis = yieldMillis,
                 terminalRows = terminalRows,
                 terminalColumns = terminalColumns,
+                shellCompatibilityMode = workspace.shellCompatibilityMode,
+                additionalBindMounts = sharedStorageMounts(workspace),
             )
         }
     }

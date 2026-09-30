@@ -18,15 +18,6 @@ class WorkspaceManager(
     private val shellSessions = mutableMapOf<String, ManagedShellSession>()
     private val shellSessionsLock = Any()
 
-    // 按 target 长度降序, 保证 /a/b 优先于 /a 匹配
-    private val sortedBindMounts = bindMounts.sortedByDescending { it.target.trimEnd('/').length }
-
-    val layout = WorkspaceLayout(
-        workspaceDir = ROOTFS_WORKSPACE_DIR,
-        writableRoots = listOf(ROOTFS_WORKSPACE_DIR, "/tmp") +
-            bindMounts.filter { it.writable }.map { it.target.trimEnd('/') },
-    )
-
     init {
         baseDir.mkdirs()
     }
@@ -136,11 +127,16 @@ class WorkspaceManager(
      * 可以直接用文件 IO 访问, 无需经过 PRoot; 只是 Rootfs 目录里对应位置是个空挂载点,
      * 按 [WorkspaceStorageArea.LINUX] 解析必然落空。
      */
-    fun resolveRootfsPath(root: String, path: String): RootfsLocation {
+    fun resolveRootfsPath(
+        root: String,
+        path: String,
+        additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ): RootfsLocation {
         val trimmed = path.trim().trimEnd('/').ifBlank { "/" }
         require(trimmed.startsWith("/")) { "Rootfs path must be absolute: $path" }
 
-        sortedBindMounts.forEach { mount ->
+        // Prefer the most specific target, including mounts enabled for this workspace only.
+        (bindMounts + additionalBindMounts).sortedByDescending { it.target.trimEnd('/').length }.forEach { mount ->
             val target = mount.target.trimEnd('/')
             if (trimmed == target) return RootfsLocation(mount.source, "")
             if (trimmed.startsWith("$target/")) {
@@ -163,18 +159,29 @@ class WorkspaceManager(
         return RootfsLocation(linuxDir(root), trimmed.trimStart('/'))
     }
 
-    fun rootfsFileSize(root: String, path: String): Long =
-        resolveRootfsFile(root, path).also { it.requireReadableFile(path) }.length()
+    fun rootfsFileSize(
+        root: String,
+        path: String,
+        additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ): Long = resolveRootfsFile(root, path, additionalBindMounts).also { it.requireReadableFile(path) }.length()
 
-    fun exportRootfsFile(root: String, path: String, outputStream: OutputStream) {
-        val file = resolveRootfsFile(root, path)
+    fun exportRootfsFile(
+        root: String,
+        path: String,
+        outputStream: OutputStream,
+        additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ) {
+        val file = resolveRootfsFile(root, path, additionalBindMounts)
         file.requireReadableFile(path)
         outputStream.use { out -> file.inputStream().use { it.copyTo(out) } }
     }
 
-    /** Rootfs 内绝对路径对应的宿主机文件, 不检查是否存在 */
-    fun resolveRootfsFile(root: String, path: String): File {
-        val location = resolveRootfsPath(root, path)
+    fun resolveRootfsFile(
+        root: String,
+        path: String,
+        additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ): File {
+        val location = resolveRootfsPath(root, path, additionalBindMounts)
         return fileSystem.resolve(location.rootDir, location.relativePath)
     }
 
@@ -214,9 +221,13 @@ class WorkspaceManager(
         timeoutMillis: Long = DEFAULT_COMMAND_TIMEOUT_MS,
         stdin: ByteArray? = null,
         shellCompatibilityMode: Boolean = false,
+        additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
     ): WorkspaceCommandResult {
         return shellRunner.execute(
-            createShellContext(root, command, cwd, timeoutMillis, stdin, shellCompatibilityMode)
+            createShellContext(
+                root, command, cwd, timeoutMillis, stdin, shellCompatibilityMode,
+                additionalBindMounts = additionalBindMounts,
+            )
         )
     }
 
@@ -229,6 +240,8 @@ class WorkspaceManager(
         yieldMillis: Long = DEFAULT_SESSION_YIELD_MS,
         terminalRows: Int = DEFAULT_TERMINAL_ROWS,
         terminalColumns: Int = DEFAULT_TERMINAL_COLUMNS,
+        shellCompatibilityMode: Boolean = false,
+        additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
     ): WorkspaceShellSessionResult {
         val context = createShellContext(
             root = root,
@@ -239,6 +252,8 @@ class WorkspaceManager(
             usePty = true,
             terminalRows = terminalRows,
             terminalColumns = terminalColumns,
+            shellCompatibilityMode = shellCompatibilityMode,
+            additionalBindMounts = additionalBindMounts,
         )
         val sessionId = UUID.randomUUID().toString()
         val session = synchronized(shellSessionsLock) {
@@ -324,6 +339,7 @@ class WorkspaceManager(
         usePty: Boolean = false,
         terminalRows: Int = DEFAULT_TERMINAL_ROWS,
         terminalColumns: Int = DEFAULT_TERMINAL_COLUMNS,
+        additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
     ): WorkspaceShellContext {
         require(command.isNotBlank()) { "Command is required" }
         val workingDir = fileSystem.resolve(filesDir(root), cwd)
@@ -339,7 +355,7 @@ class WorkspaceManager(
             workingDir = workingDir,
             timeoutMillis = timeoutMillis,
             stdin = stdin,
-            bindMounts = bindMounts,
+            bindMounts = bindMounts + additionalBindMounts,
             shellCompatibilityMode = shellCompatibilityMode,
             usePty = usePty,
             terminalRows = terminalRows.coerceAtLeast(1),
