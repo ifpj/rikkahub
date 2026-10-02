@@ -1,10 +1,10 @@
 package me.rerere.rikkahub.data.ai.mcp
 
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
-import me.rerere.ai.core.InputSchema
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -13,13 +13,45 @@ class McpToolSchemaTest {
     private fun json(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject
 
     private fun convert(properties: String, defs: String? = null): JsonObject {
-        val schema = ToolSchema(
-            properties = json(properties),
-            required = listOf("trigger"),
-            defs = defs?.let(::json),
-        ).toSchema() as InputSchema.Obj
+        val schema = JsonObject(buildMap {
+            put("type", JsonPrimitive("object"))
+            put("properties", json(properties))
+            put("required", JsonArray(listOf(JsonPrimitive("trigger"))))
+            defs?.let { put("\$defs", json(it)) }
+        }).toMcpInputSchema()
         assertEquals(listOf("trigger"), schema.required)
         return schema.properties
+    }
+
+    @Test
+    fun `raw rmcp schema preserves root references and legacy definitions`() {
+        val schema = json(
+            """
+            {
+              "type": "object",
+              "required": ["query"],
+              "properties": {
+                "query": {"${'$'}ref": "#/definitions/Query"},
+                "alias": {"${'$'}ref": "#/properties/query"}
+              },
+              "definitions": {"Query": {"type": "string", "description": "keyword"}}
+            }
+            """
+        ).toMcpInputSchema()
+
+        assertEquals(listOf("query"), schema.required)
+        assertEquals(
+            json("""{"query":{"type":"string","description":"keyword"},"alias":{"type":"string","description":"keyword"}}"""),
+            schema.properties,
+        )
+    }
+
+    @Test
+    fun `empty raw rmcp schema has no properties or required parameters`() {
+        val schema = json("{}").toMcpInputSchema()
+
+        assertEquals(json("{}"), schema.properties)
+        assertEquals(emptyList<String>(), schema.required)
     }
 
     @Test
