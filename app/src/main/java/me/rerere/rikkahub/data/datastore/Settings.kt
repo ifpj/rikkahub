@@ -85,6 +85,7 @@ data class Settings(
     val webServerLocalhostOnly: Boolean = false,
     val webServerMdnsEnabled: Boolean = true,
     val webServerTemporaryStart: Boolean = false,
+    val webServerDisableChatCompletionNotification: Boolean = false,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
     val sponsorAlertDismissedAt: Int = 0,
 ) {

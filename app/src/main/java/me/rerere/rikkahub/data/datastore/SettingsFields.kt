@@ -147,6 +147,10 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         plain(WEB_SERVER_LOCALHOST_ONLY, Settings::webServerLocalhostOnly) { copy(webServerLocalhostOnly = it) },
         plain(WEB_SERVER_MDNS_ENABLED, Settings::webServerMdnsEnabled) { copy(webServerMdnsEnabled = it) },
         plain(WEB_SERVER_TEMPORARY_START, Settings::webServerTemporaryStart) { copy(webServerTemporaryStart = it) },
+        plain(
+            WEB_SERVER_DISABLE_CHAT_COMPLETION_NOTIFICATION,
+            Settings::webServerDisableChatCompletionNotification,
+        ) { copy(webServerDisableChatCompletionNotification = it) },
 
         // 提示词注入
         json(MODE_INJECTIONS, Settings::modeInjections) { copy(modeInjections = it) },

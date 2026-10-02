@@ -285,6 +285,34 @@ fun SettingWebPage() {
                         },
                     )
                     item(
+                        headlineContent = {
+                            Text(
+                                stringResource(
+                                    R.string.setting_page_web_server_disable_chat_completion_notification
+                                )
+                            )
+                        },
+                        supportingContent = {
+                            Text(
+                                stringResource(
+                                    R.string.setting_page_web_server_disable_chat_completion_notification_desc
+                                )
+                            )
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = settings.webServerDisableChatCompletionNotification,
+                                onCheckedChange = { checked ->
+                                    scope.launch {
+                                        settingsStore.update {
+                                            it.copy(webServerDisableChatCompletionNotification = checked)
+                                        }
+                                    }
+                                },
+                            )
+                        },
+                    )
+                    item(
                         headlineContent = { Text("分离 App 与 Web 助手") },
                         supportingContent = {
                             Text("开启后，两端可以各自选择助手，切换时不再互相影响")

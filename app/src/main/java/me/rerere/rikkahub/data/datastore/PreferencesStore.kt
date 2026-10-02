@@ -174,6 +174,8 @@ class SettingsStore internal constructor(
         val WEB_SERVER_LOCALHOST_ONLY = booleanPreferencesKey("web_server_localhost_only")
         val WEB_SERVER_MDNS_ENABLED = booleanPreferencesKey("web_server_mdns_enabled")
         val WEB_SERVER_TEMPORARY_START = booleanPreferencesKey("web_server_temporary_start")
+        val WEB_SERVER_DISABLE_CHAT_COMPLETION_NOTIFICATION =
+            booleanPreferencesKey("web_server_disable_chat_completion_notification")
 
         // 提示词注入
         val MODE_INJECTIONS = stringPreferencesKey("mode_injections")
