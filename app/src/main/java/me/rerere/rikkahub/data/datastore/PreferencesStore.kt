@@ -180,6 +180,8 @@ class SettingsStore(
         val WEB_SERVER_LOCALHOST_ONLY = booleanPreferencesKey("web_server_localhost_only")
         val WEB_SERVER_MDNS_ENABLED = booleanPreferencesKey("web_server_mdns_enabled")
         val WEB_SERVER_TEMPORARY_START = booleanPreferencesKey("web_server_temporary_start")
+        val WEB_SERVER_DISABLE_CHAT_COMPLETION_NOTIFICATION =
+            booleanPreferencesKey("web_server_disable_chat_completion_notification")
 
         // 提示词注入
         val MODE_INJECTIONS = stringPreferencesKey("mode_injections")
@@ -270,6 +272,8 @@ class SettingsStore(
                 preferences[WEB_SERVER_LOCALHOST_ONLY] = settings.webServerLocalhostOnly
                 preferences[WEB_SERVER_MDNS_ENABLED] = settings.webServerMdnsEnabled
                 preferences[WEB_SERVER_TEMPORARY_START] = settings.webServerTemporaryStart
+                preferences[WEB_SERVER_DISABLE_CHAT_COMPLETION_NOTIFICATION] =
+                    settings.webServerDisableChatCompletionNotification
                 preferences[BACKUP_REMINDER_CONFIG] = JsonInstant.encodeToString(settings.backupReminderConfig)
             }
         }
@@ -373,6 +377,8 @@ class SettingsStore(
                 webServerLocalhostOnly = preferences[WEB_SERVER_LOCALHOST_ONLY] == true,
                 webServerMdnsEnabled = preferences[WEB_SERVER_MDNS_ENABLED] != false,
                 webServerTemporaryStart = preferences[WEB_SERVER_TEMPORARY_START] == true,
+                webServerDisableChatCompletionNotification =
+                    preferences[WEB_SERVER_DISABLE_CHAT_COMPLETION_NOTIFICATION] == true,
                 backupReminderConfig = preferences[BACKUP_REMINDER_CONFIG]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: BackupReminderConfig(),
@@ -682,6 +688,7 @@ data class Settings(
     val webServerLocalhostOnly: Boolean = false,
     val webServerMdnsEnabled: Boolean = true,
     val webServerTemporaryStart: Boolean = false,
+    val webServerDisableChatCompletionNotification: Boolean = false,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
 ) {
     companion object {

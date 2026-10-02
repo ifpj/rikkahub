@@ -63,6 +63,7 @@ val appModule = module {
             appScope = get(),
             eventBus = get(),
             settingsStore = get(),
+            isWebServerRunning = { get<WebServerManager>().state.value.isRunning },
         )
     }
 

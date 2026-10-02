@@ -40,6 +40,7 @@ class ChatNotificationManager(
     appScope: AppScope,
     eventBus: AppEventBus,
     private val settingsStore: SettingsStore,
+    private val isWebServerRunning: () -> Boolean,
 ) {
     private val isForeground = MutableStateFlow(false)
     private val liveUpdateLastSentAt = ConcurrentHashMap<Uuid, Long>()
@@ -87,7 +88,9 @@ class ChatNotificationManager(
 
         val contentPreview = event.contentPreview ?: return
         if (isForeground.value) return
-        if (!settingsStore.settingsFlow.value.displaySetting.enableNotificationOnMessageGeneration) return
+        val settings = settingsStore.settingsFlow.value
+        if (!settings.displaySetting.enableNotificationOnMessageGeneration) return
+        if (isWebServerRunning() && settings.webServerDisableChatCompletionNotification) return
         sendGenerationDoneNotification(event.conversationId, event.senderName, contentPreview)
     }
 
