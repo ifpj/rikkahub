@@ -104,10 +104,7 @@ internal class RmcpClient private constructor(
             RmcpTool(
                 name = tool.getValue("name").jsonPrimitive.content,
                 description = tool["description"]?.jsonPrimitive?.contentOrNull,
-                inputSchema = InputSchema.Obj(
-                    properties = schema["properties"] as? JsonObject ?: JsonObject(emptyMap()),
-                    required = schema["required"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
-                ),
+                inputSchema = schema.toMcpInputSchema(),
             )
         }
     }

@@ -1,6 +1,5 @@
 package me.rerere.rikkahub.data.ai.mcp
 
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -15,16 +14,11 @@ private const val REF = "\$ref"
  * [InputSchema.Obj] 不携带 `$defs`，且部分 provider（如 Gemini）不接受 `$ref`，
  * 因此在这里把文档内引用（`#/...`）内联展开，避免发出悬空引用导致整个请求被拒绝。
  */
-internal fun ToolSchema.toSchema(): InputSchema {
-    val properties = properties ?: JsonObject(emptyMap())
-    val root = JsonObject(buildMap {
-        put("type", JsonPrimitive(type))
-        put("properties", properties)
-        defs?.let { put("\$defs", it) }
-    })
+internal fun JsonObject.toMcpInputSchema(): InputSchema.Obj {
+    val properties = this["properties"] as? JsonObject ?: JsonObject(emptyMap())
     return InputSchema.Obj(
-        properties = inlineSchemaMap(properties, root, emptySet()),
-        required = required,
+        properties = inlineSchemaMap(properties, this, emptySet()),
+        required = (this["required"] as? JsonArray)?.map { (it as JsonPrimitive).content } ?: emptyList(),
     )
 }
 
