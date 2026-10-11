@@ -362,7 +362,7 @@ private fun ChatPageContent(
         }
         context.startForegroundService(intent)
         if (!setting.webServerTemporaryStart) {
-            vm.updateSettings(setting.copy(webServerEnabled = true))
+            vm.updateSettings { it.copy(webServerEnabled = true) }
         }
     }
 
@@ -469,8 +469,7 @@ private fun ChatPageContent(
                     mcpManager = vm.mcpManager,
                     conversation = conversation,
                     onExtensionsClick = {
-                        showFilesSheet = false
-                        showInjectionSheet = true
+                        showFilesSheet = true
                     },
                     webServerRunning = webServerState.isRunning,
                     webServerLoading = webServerState.isLoading,
@@ -480,7 +479,7 @@ private fun ChatPageContent(
                                 action = WebServerService.ACTION_STOP
                             }
                             context.startService(intent)
-                            vm.updateSettings(setting.copy(webServerEnabled = false))
+                            vm.updateSettings { it.copy(webServerEnabled = false) }
                         } else if (webServerPermissionState.allPermissionsGranted) {
                             startWebServer()
                         } else {

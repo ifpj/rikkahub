@@ -42,6 +42,8 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.BasicAlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
@@ -98,10 +100,12 @@ import me.rerere.hugeicons.stroke.Package
 import me.rerere.hugeicons.stroke.ServerStack01
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.getQuickMessagesOfAssistant
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.QuickMessage
 import me.rerere.rikkahub.service.InboxState
 import me.rerere.rikkahub.service.QueuedMessage
@@ -110,6 +114,7 @@ import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionItem
 import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionList
 import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionProvider
 import me.rerere.rikkahub.ui.components.ui.KeepScreenOn
+import me.rerere.ui.components.ToggleSurface
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionRecordAudio
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
@@ -361,11 +366,7 @@ fun ChatInput(
                             // Extensions
                             if (onExtensionsClick != null && conversation != null) {
                                 val modeAndLorebookCount =
-                                    if (assistant.allowConversationPromptInjection) {
-                                        conversation.modeInjectionIds.size + conversation.lorebookIds.size
-                                    } else {
-                                        assistant.modeInjectionIds.size + assistant.lorebookIds.size
-                                    }
+                                    assistant.modeInjectionIds.size + assistant.lorebookIds.size
                                 val activeCount =
                                     assistant.quickMessageIds.size +
                                         modeAndLorebookCount +
