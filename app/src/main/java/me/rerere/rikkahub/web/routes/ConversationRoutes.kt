@@ -268,18 +268,13 @@ fun Route.conversationRoutes(
             val conversation = conversationRepo.getConversationById(uuid)
                 ?: throw NotFoundException("Conversation not found")
             val settings = settingsStore.settingsFlow.first()
-            val assistant = settings.assistants.firstOrNull { it.id == conversation.assistantId }
-                ?: throw NotFoundException("Assistant not found")
-            if (!assistant.allowConversationModel) {
-                throw BadRequestException("Conversation model selection is not enabled for this assistant")
-            }
             val model = settings.findModelById(modelId)
                 ?: throw NotFoundException("Model not found")
             if (model.type != ModelType.CHAT) {
                 throw BadRequestException("modelId must be a chat model")
             }
 
-            chatService.saveConversation(uuid, conversation.copy(chatModelId = modelId))
+            chatService.updateChatAssistant(uuid) { it.copy(chatModelId = modelId) }
             call.respond(HttpStatusCode.OK, mapOf("status" to "updated"))
         }
 

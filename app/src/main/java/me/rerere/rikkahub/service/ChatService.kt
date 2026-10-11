@@ -340,7 +340,7 @@ class ChatService(
         }
         val assistantId = getConversationFlow(conversationId).value.assistantId
         when (selectionTarget) {
-            AssistantSelectionTarget.APP -> settingsStore.updateAssistant(assistantId)
+            AssistantSelectionTarget.APP -> settingsStore.selectAssistant(assistantId)
             AssistantSelectionTarget.WEB -> settingsStore.updateWebAssistant(assistantId)
         }
     }

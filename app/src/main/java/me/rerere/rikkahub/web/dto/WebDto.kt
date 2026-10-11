@@ -354,7 +354,7 @@ fun Conversation.toDto(isGenerating: Boolean = false) = ConversationDto(
     lorebookIds = lorebookIds.map { it.toString() },
     config = config,
     workspaceCwd = workspaceCwd,
-    chatModelId = chatModelId?.toString(),
+    chatModelId = config?.chatModelId?.toString(),
     folderId = folderId?.toString(),
     createAt = createAt.toEpochMilli(),
     updateAt = updateAt.toEpochMilli(),
