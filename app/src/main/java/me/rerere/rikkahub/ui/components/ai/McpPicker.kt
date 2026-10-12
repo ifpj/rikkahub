@@ -291,6 +291,7 @@ fun McpPicker(
                 },
                 shapes = ListItemDefaults.segmentedShapes(index = index, count = enabledServers.size),
                 colors = colors,
+                verticalAlignment = Alignment.CenterVertically,
                 leadingContent = {
                     Box(
                         modifier = Modifier
@@ -327,22 +328,25 @@ fun McpPicker(
                     }
                 },
                 supportingContent = {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    Text(
+                        text = when (val s = status) {
+                            is McpStatus.Idle -> if (server.commonOptions.skipStartupInitialization) "Deferred" else "Idle"
+                            is McpStatus.Connecting -> "Connecting"
+                            is McpStatus.Connected -> "Connected"
+                            is McpStatus.Reconnecting -> "Reconnecting (${s.attempt}/${s.maxAttempts})"
+                            is McpStatus.Error -> "Error: ${s.message}"
+                            is McpStatus.NeedsAuthorization -> "Needs authorization"
+                            is McpStatus.Authorizing -> "Authorizing"
+                        },
+                        maxLines = 5,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                trailingContent = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = when (val s = status) {
-                                is McpStatus.Idle -> if (server.commonOptions.skipStartupInitialization) "Deferred" else "Idle"
-                                is McpStatus.Connecting -> "Connecting"
-                                is McpStatus.Connected -> "Connected"
-                                is McpStatus.Reconnecting -> "Reconnecting (${s.attempt}/${s.maxAttempts})"
-                                is McpStatus.Error -> "Error: ${s.message}"
-                                is McpStatus.NeedsAuthorization -> "Needs authorization"
-                                is McpStatus.Authorizing -> "Authorizing"
-                            },
-                            maxLines = 5,
-                            overflow = TextOverflow.Ellipsis,
-                        )
                         if (status == McpStatus.Connected ||
                             (status == McpStatus.Idle && server.commonOptions.skipStartupInitialization)
                         ) {
@@ -354,14 +358,16 @@ fun McpPicker(
                                 Text("${enabledTools.size}/${tools.size} tools")
                             }
                         }
+                        // 整行都能点击切换，开关只用来显示状态
+                        Switch(checked = checked, onCheckedChange = null)
                     }
                 },
-                trailingContent = {
-                    // 整行都能点击切换，开关只用来显示状态
-                    Switch(checked = checked, onCheckedChange = null)
-                },
             ) {
-                Text(server.commonOptions.name)
+                Text(
+                    text = server.commonOptions.name,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
