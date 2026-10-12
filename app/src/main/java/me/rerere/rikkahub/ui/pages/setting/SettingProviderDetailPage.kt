@@ -571,29 +571,6 @@ private fun ModelList(
                 expanded = expanded,
                 parentProvider = providerSetting,
                 onUpdateProvider = onUpdateProvider,
-                onSync = { toAdd, toRemove ->
-                    onUpdateProvider(
-                        providerSetting.copyProvider(
-                            models = providerSetting.models
-                                .filter { model -> toRemove.none { it.modelId == model.modelId } }
-                                .plus(toAdd.map { model ->
-                                    model.copy(
-                                        inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(model.modelId),
-                                        outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(model.modelId),
-                                        abilities = ModelRegistry.MODEL_ABILITIES.getData(model.modelId)
-                                    )
-                                })
-                        )
-                    )
-                    toaster.show(
-                        type = ToastType.Success,
-                        message = context.getString(
-                            R.string.setting_provider_page_sync_result_toast,
-                            toAdd.size,
-                            toRemove.size
-                        )
-                    )
-                }
             )
         }
     }
@@ -789,13 +766,11 @@ private fun AddModelButton(
     onRemoveModel: (Model) -> Unit,
     parentProvider: ProviderSetting,
     onUpdateProvider: (ProviderSetting) -> Unit,
-    onSync: (toAdd: List<Model>, toRemove: List<Model>) -> Unit
 ) {
     val dialogState = useEditState<Model> {
         onAddModel(it.copy(displayName = it.displayName.trim()))
     }
     val scope = rememberCoroutineScope()
-    val toaster = LocalToaster.current
 
     Row(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -843,7 +818,6 @@ private fun AddModelButton(
                     )
                 )
             },
-            onSync = { toAdd, toRemove -> onSync(toAdd, toRemove) }
         )
 
         Button(
@@ -954,13 +928,8 @@ private fun ModelPicker(
     onModelDeselected: (Model) -> Unit,
     onAllModelSelected: (List<Model>) -> Unit,
     onAllModelDeselected: (List<Model>) -> Unit,
-    onSync: (toAdd: List<Model>, toRemove: List<Model>) -> Unit
 ) {
     var showModal by remember { mutableStateOf(false) }
-    var syncToAdd by remember { mutableStateOf<List<Model>>(emptyList()) }
-    var syncToRemove by remember { mutableStateOf<List<Model>>(emptyList()) }
-    val toaster = LocalToaster.current
-    val context = LocalContext.current
     if (showModal) {
         ModalBottomSheet(
             onDismissRequest = { showModal = false },
@@ -986,7 +955,7 @@ private fun ModelPicker(
                     .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // 标题栏、同步和添加所有按钮
+                // 标题栏和全选按钮
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1003,53 +972,21 @@ private fun ModelPicker(
                         selectedModels.none { it.modelId == model.modelId }
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        // Sync 按钮
-                        TextButton(
-                            onClick = {
-                                val toAdd = models.filter { model ->
-                                    selectedModels.none { it.modelId == model.modelId }
-                                }
-                                val upstreamModelIds = models.map { it.modelId }.toSet()
-                                val toRemove = selectedModels.filter { model ->
-                                    model.modelId !in upstreamModelIds
-                                }
-                                if (toAdd.isEmpty() && toRemove.isEmpty()) {
-                                    toaster.show(
-                                        type = ToastType.Info,
-                                        message = context.getString(R.string.setting_provider_page_sync_already)
-                                    )
-                                } else {
-                                    syncToAdd = toAdd
-                                    syncToRemove = toRemove
-                                }
-                            },
-                        ) {
-                            Icon(
-                                HugeIcons.Refresh03,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(stringResource(R.string.setting_provider_page_sync))
-                        }
-
-                        TextButton(
-                            onClick = {
-                                if (unselectedCount > 0) {
-                                    onAllModelSelected(filteredModels)
-                                } else {
-                                    onAllModelDeselected(filteredModels)
-                                }
-                            },
-                        ) {
-                            Text(
-                                if (unselectedCount > 0) stringResource(
-                                    R.string.setting_provider_page_select_all,
-                                    unselectedCount
-                                ) else stringResource(R.string.setting_provider_page_deselect_models)
-                            )
-                        }
+                    TextButton(
+                        onClick = {
+                            if (unselectedCount > 0) {
+                                onAllModelSelected(filteredModels)
+                            } else {
+                                onAllModelDeselected(filteredModels)
+                            }
+                        },
+                    ) {
+                        Text(
+                            if (unselectedCount > 0) stringResource(
+                                R.string.setting_provider_page_select_all,
+                                unselectedCount
+                            ) else stringResource(R.string.setting_provider_page_deselect_models)
+                        )
                     }
                 }
 
@@ -1139,22 +1076,6 @@ private fun ModelPicker(
                 )
             }
         }
-        // 同步确认弹窗
-        if (syncToAdd.isNotEmpty() || syncToRemove.isNotEmpty()) {
-            SyncConfirmDialog(
-                toAdd = syncToAdd,
-                toRemove = syncToRemove,
-                onConfirm = {
-                    onSync(syncToAdd, syncToRemove)
-                    syncToAdd = emptyList()
-                    syncToRemove = emptyList()
-                },
-                onDismiss = {
-                    syncToAdd = emptyList()
-                    syncToRemove = emptyList()
-                }
-            )
-        }
     }
     BadgedBox(
         badge = {
@@ -1173,97 +1094,6 @@ private fun ModelPicker(
             Icon(HugeIcons.Package01, null)
         }
     }
-}
-
-@Composable
-private fun SyncConfirmDialog(
-    toAdd: List<Model>,
-    toRemove: List<Model>,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    HugeIcons.Refresh03,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp)
-                )
-                Text(stringResource(R.string.setting_provider_page_sync_title))
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 400.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                if (toAdd.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                HugeIcons.Add01,
-                                contentDescription = null,
-                                tint = Color(0xFF4CAF50),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = stringResource(R.string.setting_provider_page_sync_add_section, toAdd.size),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color(0xFF4CAF50)
-                            )
-                        }
-                        toAdd.forEach { model ->
-                            ModelRow(model = model)
-                        }
-                    }
-                }
-                if (toRemove.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                HugeIcons.Cancel01,
-                                contentDescription = null,
-                                tint = Color(0xFFF44336),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = stringResource(R.string.setting_provider_page_sync_remove_section, toRemove.size),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color(0xFFF44336)
-                            )
-                        }
-                        toRemove.forEach { model ->
-                            ModelRow(model = model)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(stringResource(R.string.setting_provider_page_sync_apply))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
 }
 
 @Composable
