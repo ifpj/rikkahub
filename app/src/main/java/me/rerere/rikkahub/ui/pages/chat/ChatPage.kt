@@ -101,6 +101,7 @@ import me.rerere.rikkahub.ui.components.ai.ChatAttachmentPickerActions
 import me.rerere.rikkahub.service.WebServerService
 import me.rerere.rikkahub.ui.components.ai.ChatInput
 import me.rerere.rikkahub.ui.components.ai.ChatTopBarCapsule
+import me.rerere.rikkahub.ui.components.ai.ExtensionPickerSheet
 import me.rerere.rikkahub.ui.components.ai.FilesPicker
 import me.rerere.rikkahub.ui.components.ai.SearchMode
 import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvider
@@ -331,6 +332,7 @@ private fun ChatPageContent(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     var showFilesSheet by remember { mutableStateOf(false) }
+    var showExtensionsSheet by remember { mutableStateOf(false) }
     val attachmentPickerActions = rememberChatAttachmentPickerActions(
         inputState = inputState,
         setting = setting,
@@ -469,7 +471,7 @@ private fun ChatPageContent(
                     mcpManager = vm.mcpManager,
                     conversation = conversation,
                     onExtensionsClick = {
-                        showFilesSheet = true
+                        showExtensionsSheet = true
                     },
                     webServerRunning = webServerState.isRunning,
                     webServerLoading = webServerState.isLoading,
@@ -622,10 +624,17 @@ private fun ChatPageContent(
             onDismiss = { showDeleteConfirm = false },
             text = { Text(stringResource(R.string.chat_page_delete_conversation_confirm)) },
         )
+        if (showExtensionsSheet) {
+            ExtensionPickerSheet(
+                assistant = assistant,
+                settings = setting,
+                onUpdateAssistant = vm::updateAssistant,
+                onDismiss = { showExtensionsSheet = false },
+            )
+        }
 
         if (showFilesSheet) {
             ChatFilesPickerSheet(
-                inputState = inputState,
                 setting = setting,
                 conversation = conversation,
                 assistant = assistant,
@@ -665,7 +674,6 @@ private fun TemporaryChatEmptyState(modifier: Modifier = Modifier) {
 
 @Composable
 private fun ChatFilesPickerSheet(
-    inputState: ChatInputState,
     setting: Settings,
     conversation: Conversation,
     assistant: Assistant,
@@ -695,10 +703,8 @@ private fun ChatFilesPickerSheet(
     ) {
         FilesPicker(
             conversation = conversation,
-            state = inputState,
             assistant = assistant,
             chatModel = chatModel,
-            mcpManager = vm.mcpManager,
             onCompressContext = vm::handleCompressContext,
             onUpdateAssistant = vm::updateAssistant,
             onUpdateWorkspaceCwd = vm::updateWorkspaceCwd,

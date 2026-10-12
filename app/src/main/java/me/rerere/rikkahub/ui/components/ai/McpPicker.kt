@@ -291,6 +291,7 @@ fun McpPicker(
                 },
                 shapes = ListItemDefaults.segmentedShapes(index = index, count = enabledServers.size),
                 colors = colors,
+                verticalAlignment = Alignment.CenterVertically,
                 leadingContent = {
                     Box(
                         modifier = Modifier
@@ -344,28 +345,31 @@ fun McpPicker(
                     )
                 },
                 trailingContent = {
-                    // 整行都能点击切换，开关只用来显示状态
-                    Switch(checked = checked, onCheckedChange = null)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (status == McpStatus.Connected ||
+                            (status == McpStatus.Idle && server.commonOptions.skipStartupInitialization)
+                        ) {
+                            val tools = server.commonOptions.tools
+                            val enabledTools = tools.fastFilter { it.enable }
+                            Tag(
+                                type = TagType.INFO
+                            ) {
+                                Text("${enabledTools.size}/${tools.size} tools")
+                            }
+                        }
+                        // 整行都能点击切换，开关只用来显示状态
+                        Switch(checked = checked, onCheckedChange = null)
+                    }
                 },
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = server.commonOptions.name,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (status == McpStatus.Connected) {
-                        val tools = server.commonOptions.tools
-                        val enabledTools = tools.fastFilter { it.enable }
-                        Tag(
-                            type = TagType.INFO
-                        ) {
-                            Text("${enabledTools.size}/${tools.size} tools")
-                        }
-                    }
-                }
+                Text(
+                    text = server.commonOptions.name,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
