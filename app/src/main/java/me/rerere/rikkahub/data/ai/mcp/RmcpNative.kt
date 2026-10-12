@@ -32,7 +32,7 @@ internal interface RmcpCloseCallback {
     fun onClosed()
 }
 
-/** JNI boundary for the pinned rmcp 3.5.0 client. All blocking calls run off the UI thread. */
+/** JNI boundary for the pinned rmcp client. All blocking calls run off the UI thread. */
 @Keep
 internal object RmcpNative {
     init {

@@ -747,7 +747,7 @@ mod tests {
         assert_eq!(started["status"], "running");
         assert!(started["stdout"].as_str().unwrap().contains("ready"));
         let id = started["session_id"].as_str().unwrap();
-        let finished: Value = serde_json::from_str(
+        let mut finished: Value = serde_json::from_str(
             &manager
                 .write_stdin_with_raw(
                     &json!({
@@ -761,8 +761,27 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
+        let mut output = finished["stdout"].as_str().unwrap().to_string();
+        // Yield can return as soon as output arrives, before the process exits.
+        timeout(Duration::from_secs(5), async {
+            while finished["status"] == "running" {
+                finished = serde_json::from_str(
+                    &manager
+                        .write_stdin_with_raw(
+                            &json!({ "session_id": id, "yield_time_ms": 1000 }),
+                            false,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .unwrap();
+                output.push_str(finished["stdout"].as_str().unwrap());
+            }
+        })
+        .await
+        .expect("PTY command should complete after receiving input");
         assert_eq!(finished["status"], "completed");
         assert_eq!(finished["exit_code"], 0);
-        assert!(finished["stdout"].as_str().unwrap().contains("got:hello"));
+        assert!(output.contains("got:hello"));
     }
 }
