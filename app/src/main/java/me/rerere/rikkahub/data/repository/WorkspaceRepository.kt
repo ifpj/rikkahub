@@ -26,6 +26,7 @@ import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstaller
 import me.rerere.workspace.WorkspaceBackend
 import me.rerere.workspace.WorkspaceBackgroundCommand
+import me.rerere.workspace.WorkspaceBindMount
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceLayout
@@ -372,6 +373,12 @@ class WorkspaceRepository(
     ): WorkspaceShellSessionResult {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         return runInterruptible(Dispatchers.IO) {
+            if (workspace.isSsh()) {
+                val backend = backendOf(workspace) as SshWorkspaceBackend
+                return@runInterruptible manager.startCommandSession(workspace.root, yieldMillis) {
+                    backend.startCommand(command, cwd, timeoutMillis, terminalRows, terminalColumns)
+                }
+            }
             manager.ensureWorkspace(workspace.root)
             manager.startCommandSession(
                 root = workspace.root,
@@ -462,8 +469,11 @@ class WorkspaceRepository(
             val settings = workspace.sshSettings() ?: error("SSH workspace config is missing: ${workspace.id}")
             SshWorkspaceBackend(sshPool, workspace.id, settings.toConnectionConfig())
         } else {
-            manager.backend(workspace.root, workspace.shellCompatibilityMode)
+            manager.backend(workspace.root, workspace.shellCompatibilityMode, sharedStorageMounts(workspace))
         }
+
+    private fun sharedStorageMounts(workspace: WorkspaceEntity): List<WorkspaceBindMount> =
+        WorkspaceSharedStorage.bindMounts(context, workspace.mountSharedStorage, manager.linuxDir(workspace.root))
 
     private fun SshWorkspaceSettings.toConnectionConfig() = SshConnectionConfig(
         host = host,

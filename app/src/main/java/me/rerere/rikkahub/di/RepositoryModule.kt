@@ -94,7 +94,7 @@ val repositoryModule = module {
     } onClose { it?.close() }
 
     single {
-        WorkspaceRepository(get(), get(), get(), get(), get())
+        WorkspaceRepository(get(), get(), get(), get(), get(), get())
     }
 
     single {

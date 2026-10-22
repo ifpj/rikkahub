@@ -288,6 +288,17 @@ fun WorkspaceDetailPage(id: String) {
                         onToolApprovalChange = vm::setToolApproval,
                         onShellCompatibilityModeChange = vm::setShellCompatibilityMode,
                         onEditSsh = { navController.navigate(Screen.WorkspaceSshEditor(id)) },
+                        sharedStorageAccess = sharedStorageAccess,
+                        sharedStoragePath = sharedStoragePath,
+                        onMountSharedStorageChange = { enabled ->
+                            if (enabled && !WorkspaceSharedStorage.hasAccess(context)) {
+                                pendingStorageEnable = true
+                                showStoragePermissionDialog = true
+                            } else {
+                                vm.setMountSharedStorage(enabled)
+                            }
+                        },
+                        onRequestStoragePermission = { showStoragePermissionDialog = true },
                     )
 
                     WorkspaceDetailTab.FILES -> WorkspaceFilesPage(
@@ -545,6 +556,25 @@ private fun WorkspaceBasicPage(
             }
         }
         if (hasRootfs) {
+            item {
+                CardGroup(title = { Text("共享存储") }) {
+                    switchItem(
+                        checked = workspace?.mountSharedStorage ?: false,
+                        onCheckedChange = onMountSharedStorageChange,
+                        enabled = workspace != null,
+                        headlineContent = { Text("挂载手机共享存储") },
+                        supportingContent = {
+                            Text("仅挂载当前用户的主共享存储，手机和工作区路径均为 $sharedStoragePath。开关变更对新命令和终端生效。")
+                        },
+                    )
+                    if (workspace?.mountSharedStorage == true && !sharedStorageAccess) {
+                        item(
+                            onClick = onRequestStoragePermission,
+                            headlineContent = { Text("授予所有文件访问权限") },
+                        )
+                    }
+                }
+            }
             item {
                 CardGroup(
                     title = { Text(stringResource(R.string.workspace_detail_enable_shell)) },

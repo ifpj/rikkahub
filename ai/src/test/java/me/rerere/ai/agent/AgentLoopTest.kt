@@ -10,8 +10,11 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.core.Tool
@@ -33,6 +36,38 @@ import org.junit.Test
 import java.io.IOException
 
 class AgentLoopTest {
+    @Test
+    fun `required arguments are checked and terminal metadata is present before execution`() = runTest {
+        var executed = false
+        val marker = buildJsonObject { put("mcpTerminalCard", true) }
+        val command = tool("terminal") {
+            executed = true
+            emptyList()
+        }.copy(
+            parameters = { InputSchema.Obj(buildJsonObject {}, listOf("session_id")) },
+            displayMetadata = marker,
+        )
+        provider.stream {
+            toolCall("call-1", "terminal", "{}")
+            finish()
+        }
+        provider.stream {
+            text("done")
+            finish()
+        }
+        val events = runToEnd(request(tools = listOf(command)))
+        val calls = events.filterIsInstance<AgentEvent.MessageUpdated>()
+            .flatMap { it.message.getTools() }
+        assertTrue(calls.isNotEmpty())
+        assertTrue(calls.all { it.metadata == marker })
+        assertTrue(calls.first().output.isEmpty())
+        assertFalse(executed)
+        val output = events.finished().message.tool("call-1").outputText()
+        assertTrue(output.contains("missing required param: session_id"))
+        assertTrue(output.contains("isError"))
+        assertFalse(output.contains("\\tat "))
+    }
+
     private val model = Model(modelId = "test-model")
     private val provider = FakeProvider()
     private val hooks = RecordingHooks(model)

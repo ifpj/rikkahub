@@ -9,6 +9,7 @@ import me.rerere.workspace.WorkspaceConfig
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceLayout
 import me.rerere.workspace.WorkspaceStorageArea
+import me.rerere.workspace.WorkspaceShellProcess
 import me.rerere.workspace.shellQuote
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -33,6 +34,24 @@ class SshWorkspaceBackend(
     private val workspaceDir = layout.workspaceDir
 
     override fun shell(): String = pool.use(id, config, retry = true) { it.shell }
+
+    fun startCommand(
+        command: String,
+        cwd: String,
+        timeoutMillis: Long,
+        rows: Int,
+        columns: Int,
+    ): WorkspaceShellProcess {
+        val directory = resolve(WorkspaceStorageArea.FILES, cwd)
+        val remote = pool.openShell(id, config) { connection, onClose ->
+            connection.ensureDir(workspaceDir)
+            connection.openShell(
+                "cd -- ${directory.shellQuote()} && exec ${connection.shell.shellQuote()} -l -c ${command.shellQuote()}",
+                columns, rows, onClose,
+            )
+        }
+        return WorkspaceShellProcess.start(SshCommandProcess(remote), timeoutMillis)
+    }
 
     override fun listFiles(area: WorkspaceStorageArea, path: String): List<WorkspaceFileEntry> {
         val dir = resolve(area, path)

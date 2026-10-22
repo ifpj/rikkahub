@@ -1,15 +1,15 @@
 import com.android.build.api.dsl.Packaging
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-import java.io.FileInputStream
-import java.io.File
-import java.util.Properties
-import org.gradle.process.ExecOperations
 import org.gradle.api.DefaultTask
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.ExecOperations
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.io.File
+import java.io.FileInputStream
+import java.util.Properties
 import javax.inject.Inject
 
 abstract class BuildRmcpNative @Inject constructor(private val execOperations: ExecOperations) : DefaultTask() {
@@ -27,8 +27,11 @@ abstract class BuildRmcpNative @Inject constructor(private val execOperations: E
         val sdkRoot = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
             ?: error("ANDROID_HOME is required to build rmcp")
         val ndkRoot = File(sdkRoot, "ndk/28.2.13676358")
-        val toolchain = File(ndkRoot, "toolchains/llvm/prebuilt/" +
-            if (System.getProperty("os.name").startsWith("Windows")) "windows-x86_64" else "linux-x86_64")
+        val toolchain = File(
+            ndkRoot,
+            "toolchains/llvm/prebuilt/" +
+                if (System.getProperty("os.name").startsWith("Windows")) "windows-x86_64" else "linux-x86_64"
+        )
         require(toolchain.isDirectory) { "Android NDK 28.2.13676358 is required: $toolchain" }
         val windows = System.getProperty("os.name").startsWith("Windows")
         val extension = if (windows) ".cmd" else ""
@@ -44,7 +47,10 @@ abstract class BuildRmcpNative @Inject constructor(private val execOperations: E
                 environment("CARGO_TARGET_DIR", targetDir.absolutePath)
                 environment("CARGO_TARGET_${target.uppercase().replace('-', '_')}_LINKER", compiler.absolutePath)
                 environment("CC_${target.replace('-', '_')}", compiler.absolutePath)
-                environment("AR_${target.replace('-', '_')}", File(bin, "llvm-ar" + if (windows) ".exe" else "").absolutePath)
+                environment(
+                    "AR_${target.replace('-', '_')}",
+                    File(bin, "llvm-ar" + if (windows) ".exe" else "").absolutePath
+                )
             }
             val built = File(targetDir, "$target/release/librikkahub_rmcp.so")
             require(built.isFile) { "rmcp library missing: $built" }
@@ -407,6 +413,7 @@ dependencies {
 
     // tests
     testImplementation(libs.junit)
+    testImplementation("org.xerial:sqlite-jdbc:3.41.2.2")
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

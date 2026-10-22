@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.utils.WorkspaceSharedStorage
 import me.rerere.workspace.WorkspaceManager
 import java.util.concurrent.atomic.AtomicLong
 
@@ -208,7 +209,15 @@ class WorkspaceTerminalSessionManager internal constructor(
                 workspaceRepository.openSshShell(workspace, columns, rows)
             }
         } else {
-            workspaceManager.terminalLaunch(workspace.root, workspace.shellCompatibilityMode)?.toTransport()
+            workspaceManager.terminalLaunch(
+                workspace.root,
+                workspace.shellCompatibilityMode,
+                WorkspaceSharedStorage.bindMounts(
+                    appContext,
+                    workspace.mountSharedStorage,
+                    workspaceManager.linuxDir(workspace.root),
+                ),
+            )?.toTransport()
                 ?: error("Interactive terminal is not supported")
         }
 

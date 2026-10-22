@@ -2,6 +2,8 @@ package me.rerere.workspace.ssh
 
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.KeyPair
+import me.rerere.workspace.WorkspaceManager
+import me.rerere.workspace.WorkspaceShellSessionStatus
 import me.rerere.workspace.WorkspaceStorageArea
 import org.apache.sshd.server.SshServer
 import org.apache.sshd.server.auth.password.PasswordAuthenticator
@@ -161,6 +163,23 @@ class SshWorkspaceBackendTest {
 
     private fun backend(config: SshConnectionConfig = trustedConfig(), pool: SshConnectionPool = this.pool) =
         SshWorkspaceBackend(pool, WORKSPACE_ID, config)
+
+    @Test
+    fun backgroundCommandUsesRemoteDirectoryAndRetainsIncrementalOutput() {
+        val backend = backend()
+        val manager = WorkspaceManager(tempFolder.newFolder("local"))
+        val started = manager.startCommandSession("remote", yieldMillis = 0) {
+            backend.startCommand("printf first; sleep 0.2; printf second; pwd", "", 5_000, 30, 90)
+        }
+        assertEquals(WorkspaceShellSessionStatus.RUNNING, started.status)
+        val completed = manager.waitCommandSession("remote", requireNotNull(started.sessionId), 5_000)
+        assertEquals(WorkspaceShellSessionStatus.COMPLETED, completed.status)
+        assertEquals(0, completed.exitCode)
+        assertTrue((started.stdout + completed.stdout).contains("firstsecond${remoteDir.path}"))
+        val again = manager.updateCommandSession("remote", started.sessionId, interrupt = true, terminate = true)
+        assertEquals(WorkspaceShellSessionStatus.COMPLETED, again.status)
+        assertEquals("", again.stdout)
+    }
 
     @Test
     fun unknownHostKeyIsRejectedUntilTrusted() {

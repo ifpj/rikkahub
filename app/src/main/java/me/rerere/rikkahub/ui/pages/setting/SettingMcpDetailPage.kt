@@ -32,6 +32,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
@@ -79,6 +81,9 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.ai.mcp.McpTool
+import me.rerere.rikkahub.data.ai.mcp.findDuplicateMcpToolNames
+import me.rerere.rikkahub.ui.components.ui.CardGroup
+import me.rerere.rikkahub.ui.components.ui.switchItem
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.PagerTab
 import me.rerere.rikkahub.ui.components.ui.PagerTabs
@@ -129,6 +134,9 @@ fun SettingMcpDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                                 enable = draft.commonOptions.enable,
                                 name = draft.commonOptions.name,
                                 headers = draft.commonOptions.headers,
+                                disableToolNamePrefix = draft.commonOptions.disableToolNamePrefix,
+                                skipStartupInitialization = draft.commonOptions.skipStartupInitialization,
+                                terminalOutputEnabled = draft.commonOptions.terminalOutputEnabled,
                             )
                         )
                     } else {
@@ -213,6 +221,7 @@ fun SettingMcpDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                     McpDetailTab.BASIC -> {
                         McpBasicSettingsTab(
                             draft = draft,
+                            allConfigs = settings.mcpServers,
                             onEdit = { draft = it },
                             onSave = onSave,
                             onDelete = onDelete,
@@ -234,13 +243,15 @@ fun SettingMcpDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
 @Composable
 private fun McpBasicSettingsTab(
     draft: McpServerConfig,
+    allConfigs: List<McpServerConfig>,
     onEdit: (McpServerConfig) -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     var expanded by rememberSaveable { mutableStateOf(true) }
-    val canSave = draft.commonOptions.name.isNotBlank() && isValidMcpName(draft.commonOptions.name)
+    val canSave = draft.commonOptions.name.isNotBlank() &&
+        (draft.commonOptions.disableToolNamePrefix || isValidMcpName(draft.commonOptions.name))
 
     Box(
         modifier = Modifier
@@ -249,6 +260,7 @@ private fun McpBasicSettingsTab(
     ) {
         McpCommonOptionsConfigure(
             config = draft,
+            allConfigs = allConfigs,
             update = onEdit,
             modifier = Modifier.floatingToolbarVerticalNestedScroll(
                 expanded = expanded,
@@ -321,9 +333,29 @@ private fun McpBasicSettingsTab(
 @Composable
 private fun McpCommonOptionsConfigure(
     config: McpServerConfig,
+    allConfigs: List<McpServerConfig>,
     update: (McpServerConfig) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var pendingPrefixConflicts by remember { mutableStateOf<List<String>?>(null) }
+    pendingPrefixConflicts?.let { conflicts ->
+        AlertDialog(
+            onDismissRequest = { pendingPrefixConflicts = null },
+            title = { Text(stringResource(R.string.setting_mcp_page_prefix_conflict_title)) },
+            text = { Text(stringResource(R.string.setting_mcp_page_prefix_conflict_desc, conflicts.joinToString(", "))) },
+            confirmButton = {
+                TextButton(onClick = {
+                    update(config.clone(commonOptions = config.commonOptions.copy(disableToolNamePrefix = true)))
+                    pendingPrefixConflicts = null
+                }) { Text(stringResource(R.string.setting_mcp_page_prefix_conflict_disable_anyway)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingPrefixConflicts = null }) {
+                    Text(stringResource(R.string.setting_mcp_page_prefix_conflict_keep_prefix))
+                }
+            },
+        )
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -332,6 +364,34 @@ private fun McpCommonOptionsConfigure(
             .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 128.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        CardGroup {
+            switchItem(
+                checked = config.commonOptions.skipStartupInitialization,
+                onCheckedChange = {
+                    update(config.clone(commonOptions = config.commonOptions.copy(skipStartupInitialization = it)))
+                },
+                headlineContent = { Text(stringResource(R.string.setting_mcp_page_skip_startup_initialization)) },
+                supportingContent = { Text(stringResource(R.string.setting_mcp_page_skip_startup_initialization_desc)) },
+            )
+            switchItem(
+                checked = config.commonOptions.terminalOutputEnabled,
+                onCheckedChange = {
+                    update(config.clone(commonOptions = config.commonOptions.copy(terminalOutputEnabled = it)))
+                },
+                headlineContent = { Text("终端输出联动") },
+                supportingContent = { Text("为兼容的 MCP 服务请求原始终端输出；界面显示颜色，发送给 AI 的内容保持干净。") },
+            )
+            switchItem(
+                checked = config.commonOptions.disableToolNamePrefix,
+                onCheckedChange = { disabled ->
+                    val candidate = config.clone(commonOptions = config.commonOptions.copy(disableToolNamePrefix = disabled))
+                    val conflicts = if (disabled) findDuplicateMcpToolNames(allConfigs, candidate) else emptyList()
+                    if (conflicts.isEmpty()) update(candidate) else pendingPrefixConflicts = conflicts
+                },
+                headlineContent = { Text(stringResource(R.string.setting_mcp_page_disable_tool_prefix)) },
+                supportingContent = { Text(stringResource(R.string.setting_mcp_page_disable_tool_prefix_desc)) },
+            )
+        }
         // 启用/禁用开关
         FormItem(
             label = {
@@ -378,7 +438,7 @@ private fun McpCommonOptionsConfigure(
                 Text(stringResource(R.string.setting_mcp_page_name_desc))
             }
         ) {
-            val nameInvalid = !isValidMcpName(config.commonOptions.name)
+            val nameInvalid = !config.commonOptions.disableToolNamePrefix && !isValidMcpName(config.commonOptions.name)
             OutlinedTextField(
                 value = config.commonOptions.name,
                 onValueChange = { name ->
@@ -417,7 +477,6 @@ private fun McpCommonOptionsConfigure(
         ) {
             val transportTypes = listOf(
                 "Streamable HTTP",
-                "SSE"
             )
             val currentTypeIndex = when (config) {
                 is McpServerConfig.StreamableHTTPServer -> 0

@@ -147,10 +147,13 @@ class ProotShellRunner(
         val command = mutableListOf(File(nativeLibraryDir, PROOT_EXEC).absolutePath)
         command += prootArgs(context.linuxDir, context.filesDir, context.prootCwd(), context.bindMounts)
         command += ROOTFS_ENV
+        command += if (context.usePty) {
+            listOf("TERM=xterm-256color", "COLORTERM=truecolor")
+        } else {
+            listOf("CI=true", "NO_COLOR=1")
+        }
         command += listOf(
             // 非交互执行约定, 抑制各类 CLI 的交互行为 (确认提示/分页器/颜色转义)
-            "CI=true",
-            "NO_COLOR=1",
             "PAGER=cat",
             WorkspaceManager.rootfsShell(context.linuxDir),
             "-l",

@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.ai
 
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import me.rerere.ai.agent.withToolDisplayMetadata
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart

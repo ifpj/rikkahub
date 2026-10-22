@@ -15,6 +15,8 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.finishReasoning
 import me.rerere.ai.util.json
+import java.util.logging.Level
+import java.util.logging.Logger
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.TimeMark
@@ -30,6 +32,10 @@ internal class AgentLoop(
     private val hooks: AgentHooks,
     private val events: FlowCollector<AgentEvent>,
 ) {
+    private val displayMetadata = request.tools.mapNotNull { tool ->
+        tool.displayMetadata?.let { tool.name to it }
+    }.toMap()
+
     private val history: List<UIMessage>
 
     // 本轮的助手消息；新的一轮在第一次请求模型时才创建
@@ -208,24 +214,28 @@ internal class AgentLoop(
         val definition = findTool(tool.toolName) ?: error("Tool ${tool.toolName} not found")
         val args = runCatching { json.parseToJsonElement(tool.input.ifBlank { "{}" }) }
             .getOrElse { error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}") }
+        validateRequiredToolArguments(definition, args)
         definition.execute(args).ifEmpty { listOf(UIMessagePart.Text(EMPTY_TOOL_OUTPUT)) }
     } catch (e: CancellationException) {
         // 取消必须向上传播，否则停止生成会被误报为工具执行错误
         throw e
     } catch (e: Throwable) {
-        errorOutput("[${e.javaClass.name}] ${e.message}\n${e.stackTraceToString()}")
+        Logger.getLogger("AgentLoop").log(Level.WARNING, "Tool ${tool.toolName} failed", e)
+        listOf(toolExecutionErrorResult(e))
     }
 
     private fun findTool(name: String) = request.tools.find { it.name == name }
 
     private suspend fun update(updated: UIMessage) {
-        message = updated
-        events.emit(AgentEvent.MessageUpdated(updated))
+        val decorated = listOf(updated).withToolDisplayMetadata(displayMetadata).single()
+        message = decorated
+        events.emit(AgentEvent.MessageUpdated(decorated))
     }
 
     // 生成中途的内容只发给调用方，这一步结束前循环内部一直基于原始内容合并
     private suspend fun preview(generating: UIMessage, newPartsFrom: Int) {
-        events.emit(AgentEvent.MessageUpdated(hooks.previewStep(generating, newPartsFrom)))
+        val preview = hooks.previewStep(generating, newPartsFrom)
+        events.emit(AgentEvent.MessageUpdated(listOf(preview).withToolDisplayMetadata(displayMetadata).single()))
     }
 
     private suspend fun finish(reason: AgentFinishReason) {

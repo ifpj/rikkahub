@@ -26,6 +26,18 @@ class SshShell internal constructor(
     val connectionLost: Boolean
         get() = !connection.isConnected
 
+    val isAlive: Boolean get() = !closed.get() && !channel.isClosed && connection.isConnected
+
+    val exitCode: Int get() = channel.exitStatus
+
+    fun terminate() {
+        try {
+            if (isAlive) runCatching { channel.sendSignal("KILL") }
+        } finally {
+            close()
+        }
+    }
+
     fun resize(columns: Int, rows: Int) {
         channel.setPtySize(columns, rows, 0, 0)
     }

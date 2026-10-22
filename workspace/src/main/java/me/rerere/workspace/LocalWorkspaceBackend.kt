@@ -9,6 +9,7 @@ class LocalWorkspaceBackend(
     private val manager: WorkspaceManager,
     private val root: String,
     private val shellCompatibilityMode: Boolean = false,
+    private val additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
 ) : WorkspaceBackend {
     override val layout: WorkspaceLayout
         get() = manager.layout
@@ -51,12 +52,12 @@ class LocalWorkspaceBackend(
 
     override fun absoluteFileSize(path: String): Long {
         manager.ensureWorkspace(root)
-        return manager.rootfsFileSize(root, path)
+        return manager.rootfsFileSize(root, path, additionalBindMounts)
     }
 
     override fun exportAbsoluteFile(path: String, outputStream: OutputStream) {
         manager.ensureWorkspace(root)
-        manager.exportRootfsFile(root, path, outputStream)
+        manager.exportRootfsFile(root, path, outputStream, additionalBindMounts)
     }
 
     // 在 Rootfs 内用 shell 写入: Rootfs 里的绝对路径软链只有 PRoot 内才能正确解析
@@ -91,7 +92,7 @@ class LocalWorkspaceBackend(
         return manager.resolveFile(root, path, area)
     }
 
-    override fun localAbsoluteFile(path: String): File = manager.resolveRootfsFile(root, path)
+    override fun localAbsoluteFile(path: String): File = manager.resolveRootfsFile(root, path, additionalBindMounts)
 
     override fun executeCommand(
         command: String,
@@ -107,6 +108,7 @@ class LocalWorkspaceBackend(
             timeoutMillis = timeoutMillis,
             stdin = stdin,
             shellCompatibilityMode = shellCompatibilityMode,
+            additionalBindMounts = additionalBindMounts,
         )
     }
 

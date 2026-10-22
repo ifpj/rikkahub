@@ -376,7 +376,7 @@ class ExampleUnitTest {
             manager.waitCommandSession(root, requireNotNull(started.sessionId), yieldMillis = 2_000)
         }
         assertEquals(WorkspaceShellSessionStatus.COMPLETED, completed.status)
-        assertEquals("got:hello", written.stdout + completed.stdout)
+        assertEquals("got:hello", if (written === completed) written.stdout else written.stdout + completed.stdout)
     }
 
     @Test

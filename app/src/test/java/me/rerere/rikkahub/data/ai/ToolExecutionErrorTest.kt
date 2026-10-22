@@ -6,6 +6,8 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.ai.agent.toolExecutionErrorResult
+import me.rerere.ai.agent.validateRequiredToolArguments
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.rikkahub.data.ai.tools.workspaceWriteStdinSchema

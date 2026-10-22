@@ -46,8 +46,8 @@ import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.ai.TranslationHandler
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.prompts.buildCompressPrompt
-import me.rerere.rikkahub.data.ai.tools.InvalidMcpServerNamesException
 import me.rerere.rikkahub.data.ai.tools.DuplicateMcpToolNamesException
+import me.rerere.rikkahub.data.ai.tools.InvalidMcpServerNamesException
 import me.rerere.rikkahub.data.ai.tools.shouldUseExternalWebSearch
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
@@ -809,6 +809,15 @@ class ChatService(
         } catch (e: CancellationException) {
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
             throw e
+        } catch (e: DuplicateMcpToolNamesException) {
+            session.messageQueue.pause()
+            addError(
+                IllegalStateException(
+                    context.getString(R.string.error_mcp_duplicate_tool_names, e.names.joinToString(", "))
+                ),
+                conversationId,
+            )
+            return TurnResult.Failed
         } catch (e: InvalidMcpServerNamesException) {
             session.inbox.pause()
             addError(

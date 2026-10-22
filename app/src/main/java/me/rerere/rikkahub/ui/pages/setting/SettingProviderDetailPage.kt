@@ -54,6 +54,7 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
@@ -206,7 +207,6 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                 imageGenerationModelId = latest.imageGenerationModelId.keepOr(fallbackImageModelId),
                 translateModeId = latest.translateModeId.keepOr(fallbackChatModelId),
                 ocrModelId = latest.ocrModelId.keepOr(fallbackChatModelId),
-                compressModelId = latest.compressModelId.keepOr(fallbackChatModelId),
                 assistants = latest.assistants.map { assistant ->
                     if (assistant.chatModelId != null && assistant.chatModelId !in validModelIds) {
                         assistant.copy(chatModelId = null)

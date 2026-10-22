@@ -11,6 +11,7 @@ interface WorkspaceShellRunner {
 
     fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
         val shellProcess = start(context)
+        if (context.stdin == null) shellProcess.closeStdin()
         return try {
             shellProcess.awaitResult()
         } catch (e: InterruptedException) {

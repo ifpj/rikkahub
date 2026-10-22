@@ -18,12 +18,21 @@ class WorkspaceManager(
     private val shellSessions = mutableMapOf<String, ManagedShellSession>()
     private val shellSessionsLock = Any()
 
+    val layout = WorkspaceLayout(
+        workspaceDir = ROOTFS_WORKSPACE_DIR,
+        writableRoots = listOf(ROOTFS_WORKSPACE_DIR, "/tmp") +
+            bindMounts.filter { it.writable }.map { it.target.trimEnd('/') },
+    )
+
     init {
         baseDir.mkdirs()
     }
 
-    fun backend(root: String, shellCompatibilityMode: Boolean = false): WorkspaceBackend =
-        LocalWorkspaceBackend(this, root, shellCompatibilityMode)
+    fun backend(
+        root: String,
+        shellCompatibilityMode: Boolean = false,
+        additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ): WorkspaceBackend = LocalWorkspaceBackend(this, root, shellCompatibilityMode, additionalBindMounts)
 
     fun ensureWorkspace(root: String): File {
         val dir = workspaceDir(root)
@@ -225,7 +234,12 @@ class WorkspaceManager(
     ): WorkspaceCommandResult {
         return shellRunner.execute(
             createShellContext(
-                root, command, cwd, timeoutMillis, stdin, shellCompatibilityMode,
+                root,
+                command,
+                cwd,
+                timeoutMillis,
+                stdin,
+                shellCompatibilityMode,
                 additionalBindMounts = additionalBindMounts,
             )
         )
@@ -255,6 +269,15 @@ class WorkspaceManager(
             shellCompatibilityMode = shellCompatibilityMode,
             additionalBindMounts = additionalBindMounts,
         )
+        return startCommandSession(root, yieldMillis) { shellRunner.start(context) }
+    }
+
+    /** Retains local or remote command processes with the same incremental session semantics. */
+    fun startCommandSession(
+        root: String,
+        yieldMillis: Long,
+        start: () -> WorkspaceShellProcess,
+    ): WorkspaceShellSessionResult {
         val sessionId = UUID.randomUUID().toString()
         val session = synchronized(shellSessionsLock) {
             cleanupShellSessionsLocked()
@@ -265,7 +288,7 @@ class WorkspaceManager(
             ManagedShellSession(
                 id = sessionId,
                 root = root,
-                process = shellRunner.start(context),
+                process = start(),
                 lastAccessAt = System.currentTimeMillis(),
             ).also { shellSessions[sessionId] = it }
         }
@@ -370,13 +393,17 @@ class WorkspaceManager(
         RootfsPatcher().patch(linuxDir(root), RootfsPatchOptions(nameservers = nameservers))
     }
 
-    fun terminalLaunch(root: String, shellCompatibilityMode: Boolean): WorkspaceTerminalLaunch? =
+    fun terminalLaunch(
+        root: String,
+        shellCompatibilityMode: Boolean,
+        additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ): WorkspaceTerminalLaunch? =
         shellRunner.terminalLaunch(
             WorkspaceTerminalContext(
                 filesDir = filesDir(root),
                 linuxDir = linuxDir(root),
                 tempDir = tempDir(root),
-                bindMounts = bindMounts,
+                bindMounts = bindMounts + additionalBindMounts,
                 shellCompatibilityMode = shellCompatibilityMode,
             )
         )

@@ -39,13 +39,14 @@ $env:ANDROID_USER_HOME = Join-Path $toolRoot 'android-user-home'
 $env:GRADLE_USER_HOME = Join-Path $repo '.gradle-home'
 $env:COREPACK_HOME = Join-Path $toolRoot 'corepack-cache'
 $env:NPM_CONFIG_CACHE = Join-Path $toolRoot 'npm-cache'
+$env:CARGO_HOME = Join-Path $toolRoot 'cargo-home'
 $env:TEMP = Join-Path $toolRoot 'tmp'
 $env:TMP = $env:TEMP
 $env:PATH = "$nodeRoot;$(Join-Path $sdkRoot 'platform-tools');$env:PATH"
 
 foreach ($directory in @(
     $env:ANDROID_USER_HOME, $env:GRADLE_USER_HOME, $env:COREPACK_HOME,
-    $env:NPM_CONFIG_CACHE, $env:TEMP, (Join-Path $repo '.pnpm-store')
+    $env:NPM_CONFIG_CACHE, $env:CARGO_HOME, $env:TEMP, (Join-Path $repo '.pnpm-store')
 )) {
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
 }
@@ -61,7 +62,7 @@ if (-not $SkipWebInstall) {
     }
 }
 
-$gradleArgs = @("assemble$Variant")
+$gradleArgs = @("assembleGithub$Variant")
 if ($Variant -eq 'Release') {
     $propertiesPath = Join-Path $repo 'local.properties'
     $signingProperties = @{}

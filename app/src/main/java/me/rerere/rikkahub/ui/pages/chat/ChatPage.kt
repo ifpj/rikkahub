@@ -702,6 +702,7 @@ private fun ChatFilesPickerSheet(
         onDismissRequest = { dismissAll() },
     ) {
         FilesPicker(
+            state = vm.inputState,
             conversation = conversation,
             assistant = assistant,
             chatModel = chatModel,

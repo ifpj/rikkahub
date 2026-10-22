@@ -11,11 +11,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 val Migration_26_27 = object : Migration(26, 27) {
     override fun migrate(db: SupportSQLiteDatabase) {
+        val hasConfig = hasColumn(db, "ConversationEntity", "config")
         if (hasColumn(db, "ConversationEntity", "chat_model_id")) {
             try {
                 db.execSQL("ALTER TABLE `ConversationEntity` DROP COLUMN `chat_model_id`")
             } catch (_: Exception) {
-                rebuildConversationTable(db)
+                rebuildConversationTable(db, hasConfig)
             }
         }
         if (!hasColumn(db, "ConversationEntity", "config")) {
@@ -24,7 +25,7 @@ val Migration_26_27 = object : Migration(26, 27) {
     }
 }
 
-private fun rebuildConversationTable(db: SupportSQLiteDatabase) {
+private fun rebuildConversationTable(db: SupportSQLiteDatabase, hasConfig: Boolean) {
     db.execSQL(
         """
         CREATE TABLE `ConversationEntity_new` (
@@ -55,7 +56,7 @@ private fun rebuildConversationTable(db: SupportSQLiteDatabase) {
         )
         SELECT `id`, `assistant_id`, `title`, `nodes`, `create_at`, `update_at`,
             `suggestions`, `is_pinned`, `custom_system_prompt`, `mode_injection_ids`,
-            `lorebook_ids`, `workspace_cwd`, `folder_id`, ''
+            `lorebook_ids`, `workspace_cwd`, `folder_id`, ${if (hasConfig) "`config`" else "''"}
         FROM `ConversationEntity`
         """.trimIndent()
     )

@@ -128,6 +128,7 @@ class ChatToolFactory(
                                 server.commonOptions.terminalOutputEnabled,
                             )
                         },
+                    )
                 )
             }
         }
@@ -140,6 +141,11 @@ class ChatToolFactory(
 
     private fun withOutputTruncation(tool: Tool): Tool {
         if (tool.name in TOOLS_WITHOUT_OUTPUT_TRUNCATION) return tool
+        // Terminal results already bound their model-visible output and retain raw UI metadata.
+        if (tool.name in setOf("workspace_exec_command", "workspace_write_stdin") ||
+            tool.displayMetadata?.containsKey(MCP_TERMINAL_CARD_METADATA_KEY) == true) {
+            return tool
+        }
         val execute = tool.execute
         return tool.copy(execute = { truncateOutput(execute(it)) })
     }
