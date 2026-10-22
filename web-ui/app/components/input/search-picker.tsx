@@ -152,10 +152,6 @@ export function SearchPickerButton({
   const currentService = settings?.searchServices?.[settings.searchServiceSelected] ?? null;
   const checked = searchEnabled || builtInSearchEnabled;
 
-  if (!externalSearchEnabled) {
-    return null;
-  }
-
   React.useEffect(() => {
     if (!canUse) {
       popoverProps.onOpenChange(false);
@@ -208,6 +204,11 @@ export function SearchPickerButton({
     toggleSearchEnabledMutation.isPending ||
     toggleBuiltInSearchMutation.isPending ||
     selectServiceMutation.isPending;
+
+  // Settings arrive asynchronously, so hiding the button must not skip hooks.
+  if (!externalSearchEnabled) {
+    return null;
+  }
 
   return (
     <Popover {...popoverProps}>
