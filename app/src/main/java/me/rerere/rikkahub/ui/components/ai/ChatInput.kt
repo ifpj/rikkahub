@@ -124,6 +124,7 @@ import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.utils.SoundEffectPlayer
 import org.koin.compose.koinInject
+import kotlin.time.Duration.Companion.seconds
 import me.rerere.rikkahub.ui.pages.chat.VoicePhase
 import me.rerere.rikkahub.ui.pages.chat.VoiceSessionState
 import kotlin.uuid.Uuid
@@ -137,6 +138,7 @@ fun ChatInput(
     assistant: Assistant,
     chatModel: Model?,
     hazeState: HazeState,
+    onUpdateSearchMode: (SearchMode) -> Unit,
     modifier: Modifier = Modifier,
     completionProviders: List<ChatCompletionProvider> = emptyList(),
     mcpManager: McpManager? = null,
@@ -147,6 +149,7 @@ fun ChatInput(
     onWebServerClick: (() -> Unit)? = null,
     onUpdateChatModel: (Model) -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
+    onUpdateSearchService: (Int) -> Unit,
     onMoreClick: () -> Unit,
     onCancelClick: () -> Unit,
     onSendClick: () -> Unit,
@@ -313,8 +316,9 @@ fun ChatInput(
                             )
 
                             // Search
-                            val enableSearchMsg = stringResource(R.string.web_search_enabled)
-                            val disableSearchMsg = stringResource(R.string.web_search_disabled)
+                            val localSearchMsg = stringResource(R.string.search_picker_local_title)
+                            val modelSearchMsg = stringResource(R.string.search_picker_model_title)
+                            val disableSearchMsg = stringResource(R.string.search_picker_status_off)
                             SearchPickerButton(
                                 enableSearch = assistant.enableWebSearch,
                                 settings = settings,
@@ -323,7 +327,11 @@ fun ChatInput(
                                     onUpdateSearchMode(mode)
                                     val enabled = mode != SearchMode.OFF
                                     toaster.show(
-                                        message = if (enabled) enableSearchMsg else disableSearchMsg,
+                                        message = when (mode) {
+                                            SearchMode.OFF -> disableSearchMsg
+                                            SearchMode.LOCAL -> localSearchMsg
+                                            SearchMode.BUILT_IN -> modelSearchMsg
+                                        },
                                         duration = 1.seconds,
                                         type = if (enabled) {
                                             ToastType.Success

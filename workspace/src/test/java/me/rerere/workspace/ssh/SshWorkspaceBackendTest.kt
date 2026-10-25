@@ -5,6 +5,7 @@ import com.jcraft.jsch.KeyPair
 import me.rerere.workspace.WorkspaceManager
 import me.rerere.workspace.WorkspaceShellSessionStatus
 import me.rerere.workspace.WorkspaceStorageArea
+import me.rerere.workspace.shellQuote
 import org.apache.sshd.server.SshServer
 import org.apache.sshd.server.auth.password.PasswordAuthenticator
 import org.apache.sshd.server.auth.pubkey.PublickeyAuthenticator
@@ -123,9 +124,8 @@ class SshWorkspaceBackendTest {
                     slowReplyRequests.incrementAndGet()
                     Thread.sleep(1_500)
                 }
-                // 固定 SHELL, 交互式 shell 测试不受开发机登录 shell 影响
-                ProcessShellFactory(
-                    command,
+                // 新版 SSHD 忽略旧的 parsedElements 参数, 必须把固定环境写入实际执行的命令。
+                val isolatedCommand = listOf(
                     "/usr/bin/env",
                     "HOME=${home.path}",
                     "SHELL=/bin/sh",
@@ -133,6 +133,7 @@ class SshWorkspaceBackendTest {
                     "-c",
                     command
                 )
+                ProcessShellFactory(isolatedCommand.joinToString(" ") { it.shellQuote() }, isolatedCommand)
                     .createShell(channel)
             }
             start()
