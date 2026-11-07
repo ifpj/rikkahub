@@ -28,18 +28,6 @@ class ProotShellRunner(
                 )
             )
         }
-        val pidFile = File(context.linuxDir, "${EXEC_DIR.trimStart('/')}/${UUID.randomUUID()}.pid")
-        pidFile.parentFile?.mkdirs()
-        val process = processBuilder(context, buildCommand(context, TRACKED_SCRIPT, "$EXEC_DIR/${pidFile.name}"))
-            .redirectErrorStream(false)
-            .start()
-        return try {
-            // 超时或取消时直接结束, 不留宽限期: 调用方已经不再等这条命令
-            process.readResult(context.timeoutMillis, context.stdin) { terminateProot(this, pidFile) }
-        } finally {
-            pidFile.delete()
-        }
-    }
 
         val proot = File(nativeLibraryDir, PROOT_EXEC)
         val loader = File(nativeLibraryDir, PROOT_LOADER)
@@ -62,19 +50,11 @@ class ProotShellRunner(
             )
         }
 
-    private fun unavailableReason(context: WorkspaceShellContext): String? = when {
-        !WorkspaceManager.isUsableRootfs(context.linuxDir) -> "Rootfs is not installed"
-        !File(nativeLibraryDir, PROOT_EXEC).isFile ->
-            "proot executable not found: ${File(nativeLibraryDir, PROOT_EXEC).absolutePath}"
-        !File(nativeLibraryDir, PROOT_LOADER).isFile ->
-            "proot loader not found: ${File(nativeLibraryDir, PROOT_LOADER).absolutePath}"
-        else -> null
-    }
-
-    private fun processBuilder(context: WorkspaceShellContext, command: List<String>): ProcessBuilder {
         context.tempDir.mkdirs()
         patcher.patch(context.linuxDir)
-        val command = buildCommand(context, proot)
+        val pidFile = File(context.linuxDir, "${EXEC_DIR.trimStart('/')}/${UUID.randomUUID()}.pid")
+        pidFile.parentFile?.mkdirs()
+        val command = buildCommand(context, TRACKED_SCRIPT, "$EXEC_DIR/${pidFile.name}")
         if (context.usePty) {
             val backend = WorkspacePtyProcess.start(
                 command = proot.absolutePath,
@@ -84,11 +64,24 @@ class ProotShellRunner(
                 rows = context.terminalRows,
                 columns = context.terminalColumns,
             )
-            return WorkspaceShellProcess.start(backend, context.timeoutMillis, context.stdin)
+            val tracked = object : WorkspaceProcessBackend by backend {
+                override fun terminate() = terminateProot(backend, pidFile)
+
+                override fun waitFor(timeoutMillis: Long): Boolean = backend.waitFor(timeoutMillis).also {
+                    if (it) pidFile.delete()
+                }
+
+                override fun waitFor() {
+                    backend.waitFor()
+                    pidFile.delete()
+                }
+            }
+            return WorkspaceShellProcess.start(tracked, context.timeoutMillis, context.stdin)
         }
 
         val process = ProcessBuilder(command)
             .directory(context.filesDir)
+            .redirectErrorStream(false)
             .apply {
                 processEnvironment(context, loader).forEach { entry ->
                     val (name, value) = entry.split('=', limit = 2)
@@ -101,6 +94,67 @@ class ProotShellRunner(
             .start()
 
         return WorkspaceShellProcess.start(process, context.timeoutMillis, context.stdin)
+    }
+
+    override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
+        unavailableReason(context)?.let { reason ->
+            return WorkspaceCommandResult(
+                exitCode = 127,
+                stdout = "",
+                stderr = reason,
+            )
+        }
+        val pidFile = File(context.linuxDir, "${EXEC_DIR.trimStart('/')}/${UUID.randomUUID()}.pid")
+        pidFile.parentFile?.mkdirs()
+        val process = processBuilder(context, buildCommand(context, TRACKED_SCRIPT, "$EXEC_DIR/${pidFile.name}"))
+            .redirectErrorStream(false)
+            .start()
+        return try {
+            // 超时或取消时直接结束, 不留宽限期: 调用方已经不再等这条命令
+            process.readResult(context.timeoutMillis, context.stdin) { terminateProot(this, pidFile) }
+        } finally {
+            pidFile.delete()
+        }
+    }
+
+    override fun startBackground(context: WorkspaceShellContext, id: String): WorkspaceBackgroundCommand {
+        unavailableReason(context)?.let { error(it) }
+        // 日志放在 Rootfs 的 /tmp 下, 模型可以用 shell 直接 tail/grep; 应用启动时随 /tmp 一起清理
+        val dir = File(context.linuxDir, BACKGROUND_DIR.trimStart('/')).apply { mkdirs() }
+        val logFile = File(dir, "$id.log")
+        val pidFile = File(dir, "$id.pid")
+        val process = processBuilder(context, buildCommand(context, TRACKED_SCRIPT, "$BACKGROUND_DIR/$id.pid"))
+            .redirectErrorStream(true)
+            .redirectOutput(logFile)
+            .redirectInput(File("/dev/null"))
+            .start()
+        return ProotBackgroundCommand(process, logFile, "$BACKGROUND_DIR/$id.log", pidFile)
+    }
+
+    private fun unavailableReason(context: WorkspaceShellContext): String? = when {
+        !WorkspaceManager.isUsableRootfs(context.linuxDir) -> "Rootfs is not installed"
+        !File(nativeLibraryDir, PROOT_EXEC).isFile ->
+            "proot executable not found: ${File(nativeLibraryDir, PROOT_EXEC).absolutePath}"
+        !File(nativeLibraryDir, PROOT_LOADER).isFile ->
+            "proot loader not found: ${File(nativeLibraryDir, PROOT_LOADER).absolutePath}"
+        else -> null
+    }
+
+    private fun processBuilder(context: WorkspaceShellContext, command: List<String>): ProcessBuilder {
+        context.tempDir.mkdirs()
+        patcher.patch(context.linuxDir)
+        return ProcessBuilder(command)
+            .directory(context.filesDir)
+            .apply {
+                if (context.shellCompatibilityMode) {
+                    environment()["PROOT_NO_SECCOMP"] = "1"
+                } else {
+                    environment().remove("PROOT_NO_SECCOMP")
+                }
+                environment()["PROOT_LOADER"] = File(nativeLibraryDir, PROOT_LOADER).absolutePath
+                environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
+                environment()["TMPDIR"] = context.tempDir.absolutePath
+            }
     }
 
     override fun terminalLaunch(context: WorkspaceTerminalContext): WorkspaceTerminalLaunch {
@@ -147,11 +201,15 @@ class ProotShellRunner(
         val command = mutableListOf(File(nativeLibraryDir, PROOT_EXEC).absolutePath)
         command += prootArgs(context.linuxDir, context.filesDir, context.prootCwd(), context.bindMounts)
         command += ROOTFS_ENV
-        command += if (context.usePty) {
-            listOf("TERM=xterm-256color", "COLORTERM=truecolor")
-        } else {
-            listOf("CI=true", "NO_COLOR=1")
-        }
+        command +=
+            if (context.usePty) {
+                listOf(
+                    "TERM=xterm-256color",
+                    "COLORTERM=truecolor"
+                )
+            } else {
+                listOf("CI=true", "NO_COLOR=1")
+            }
         command += listOf(
             // 非交互执行约定, 抑制各类 CLI 的交互行为 (确认提示/分页器/颜色转义)
             "PAGER=cat",

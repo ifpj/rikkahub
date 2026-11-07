@@ -7,9 +7,9 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.utils.WorkspaceSharedStorage
 import me.rerere.workspace.WorkspaceLayout
 import me.rerere.workspace.WorkspaceManager
-import me.rerere.rikkahub.utils.WorkspaceSharedStorage
 import me.rerere.workspace.WorkspaceShellStatus
 import java.io.ByteArrayOutputStream
 import java.nio.file.Paths
@@ -195,13 +195,21 @@ private fun buildWorkspacePrompt(
     cwd: String? = null,
 ): String = buildString {
     appendLine("<workspace>")
-    appendLine("You have access to a persistent Linux workspace named \"${workspace.name}\", running in a sandboxed proot rootfs environment.")
-    appendLine("- The workspace files area is mounted at `/workspace`. Use it as your working directory; files written there persist across turns of this conversation.")
+    appendLine(
+        "You have access to a persistent Linux workspace named \"${workspace.name}\", running in a sandboxed proot rootfs environment."
+    )
+    appendLine(
+        "- The workspace files area is mounted at `/workspace`. Use it as your working directory; files written there persist across turns of this conversation."
+    )
     if (workspace.mountSharedStorage) {
         val sharedStoragePath = WorkspaceSharedStorage.rootDirectory().absolutePath
-        appendLine("- The current user's primary shared storage is mounted at `$sharedStoragePath`, at the same path as on the phone. Use `ls $sharedStoragePath` to list its real directories. These are the user's real files; access or modify them only as needed for the user's request.")
+        appendLine(
+            "- The current user's primary shared storage is mounted at `$sharedStoragePath`, at the same path as on the phone. Use `ls $sharedStoragePath` to list its real directories. These are the user's real files; access or modify them only as needed for the user's request."
+        )
     }
-    appendLine("- All paths passed to workspace tools must be absolute and inside the Rootfs (for example `/workspace/notes.md`).")
+    appendLine(
+        "- All paths passed to workspace tools must be absolute and inside the Rootfs (for example `/workspace/notes.md`)."
+    )
     if (distro != null) {
         appendLine(
             "- The Rootfs distribution is $distro. Use its native package manager when you need to install missing tools."
@@ -210,14 +218,31 @@ private fun buildWorkspacePrompt(
     appendShellLine(shell)
     appendLine("- Available tools:")
     appendLine("  - `workspace_read_file`: read file contents.")
-    appendLine("  - `workspace_write_file` / `workspace_edit_file`: create files, or make precise edits to existing files.")
+    appendLine(
+        "  - `workspace_write_file` / `workspace_edit_file`: create files, or make precise edits to existing files."
+    )
     appendLine("  - `workspace_exec_command`: run a shell command (the files area is mounted at /workspace).")
-    appendLine("  - `workspace_write_stdin`: poll a running command with empty chars, or send input, Ctrl+C, EOF, resize, or terminate a session.")
-    appendLine("  - If `workspace_exec_command` returns status `running`, do not start the command again; call `workspace_write_stdin` with the returned session_id. Each call returns the next output delta and lets you decide the next action.")
-    appendLine("- Prefer `workspace_exec_command` for tasks that standard Unix tools handle well, and prefer `workspace_edit_file` for targeted edits over rewriting whole files.")
-    appendLine("- The skills directory is mounted at `/skills`. Each skill is a subdirectory `/skills/<skill-name>/` containing a `SKILL.md` (with `name` and `description` frontmatter) plus any supporting files. Read a skill's `SKILL.md` before using it, and follow its instructions.")
-    appendLine("- Built-in skills shipped with the app are mounted at `/builtin_skills/<skill-name>/` with the same layout. Treat `/builtin_skills` as READ-ONLY: you may read files and run scripts there, but never modify, overwrite, or delete anything. A skill in `/skills` with the same name overrides the built-in one.")
-    appendLine("- Files the user uploaded are mounted at `/upload`. Treat `/upload` as READ-ONLY: read uploaded files from `/upload/<file-name>`, but never modify, overwrite, or delete anything there. If you need to change an uploaded file, copy it into `/workspace` first and edit the copy.")
+    appendLine(
+        "  - For non-interactive long builds, servers or watchers, use run_in_background=true. It returns a task_id and notifies you automatically when finished; do not poll. Use workspace_shell_output or workspace_shell_kill with task_id only when needed."
+    )
+    appendLine(
+        "  - `workspace_write_stdin`: poll a running command with empty chars, or send input, Ctrl+C, EOF, resize, or terminate a session."
+    )
+    appendLine(
+        "  - If `workspace_exec_command` returns status `running`, do not start the command again; call `workspace_write_stdin` with the returned session_id. Each call returns the next output delta and lets you decide the next action."
+    )
+    appendLine(
+        "- Prefer `workspace_exec_command` for tasks that standard Unix tools handle well, and prefer `workspace_edit_file` for targeted edits over rewriting whole files."
+    )
+    appendLine(
+        "- The skills directory is mounted at `/skills`. Each skill is a subdirectory `/skills/<skill-name>/` containing a `SKILL.md` (with `name` and `description` frontmatter) plus any supporting files. Read a skill's `SKILL.md` before using it, and follow its instructions."
+    )
+    appendLine(
+        "- Built-in skills shipped with the app are mounted at `/builtin_skills/<skill-name>/` with the same layout. Treat `/builtin_skills` as READ-ONLY: you may read files and run scripts there, but never modify, overwrite, or delete anything. A skill in `/skills` with the same name overrides the built-in one."
+    )
+    appendLine(
+        "- Files the user uploaded are mounted at `/upload`. Treat `/upload` as READ-ONLY: read uploaded files from `/upload/<file-name>`, but never modify, overwrite, or delete anything there. If you need to change an uploaded file, copy it into `/workspace` first and edit the copy."
+    )
     if (!cwd.isNullOrBlank()) {
         appendLine(
             "- Current working directory: `$cwd`. Use this as the default context for file operations and shell commands."

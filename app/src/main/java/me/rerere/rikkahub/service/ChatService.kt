@@ -237,6 +237,8 @@ class ChatService(
         }
         appScope.launch(Dispatchers.IO) {
             jobs.forEach { it.join() }
+            backgroundShellManager.killConversation(conversationId)
+            session.inbox.discard()
             val candidates = session.state.value.files.map(Uri::toString).toSet() +
                 (queued + listOfNotNull(submitting)).flatMap { it.parts }.localFileUrls()
             val otherSessions = sessionManager.snapshot().filter { it.id != conversationId }
@@ -810,7 +812,7 @@ class ChatService(
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
             throw e
         } catch (e: DuplicateMcpToolNamesException) {
-            session.messageQueue.pause()
+            session.inbox.pause()
             addError(
                 IllegalStateException(
                     context.getString(R.string.error_mcp_duplicate_tool_names, e.names.joinToString(", "))

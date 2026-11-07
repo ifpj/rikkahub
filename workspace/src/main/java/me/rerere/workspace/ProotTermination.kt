@@ -23,28 +23,48 @@ private const val PID_WAIT_MS = 1_000L
  * 进程号由 shell 启动时写入 [pidFile] (`$$ $PPID`), 即 shell 自身与 PRoot 的进程号。
  */
 internal fun terminateProot(process: Process, pidFile: File, graceMillis: Long = 0) {
-    val pids = readPids(process, pidFile)
+    terminateProot(
+        pidFile,
+        graceMillis,
+        { process.isAlive },
+        { process.waitFor(it, TimeUnit.MILLISECONDS) },
+        { process.destroyForcibly() }
+    )
+}
+
+internal fun terminateProot(process: WorkspaceProcessBackend, pidFile: File) {
+    terminateProot(pidFile, 0, { process.isAlive }, { process.waitFor(it) }, { process.terminate() })
+}
+
+private fun terminateProot(
+    pidFile: File,
+    graceMillis: Long,
+    isAlive: () -> Boolean,
+    waitFor: (Long) -> Boolean,
+    destroy: () -> Unit,
+) {
+    val pids = readPids(isAlive, pidFile)
     if (pids == null) {
-        process.destroyForcibly()
-        process.waitFor(KILL_WAIT_MS, TimeUnit.MILLISECONDS)
+        destroy()
+        waitFor(KILL_WAIT_MS)
         return
     }
     val (shellPid, prootPid) = pids
     if (graceMillis > 0) {
         // 命令本身先收到 SIGTERM; 直接结束 shell 会让 --kill-on-exit 立刻 SIGKILL 其余进程
         (traceesOf(prootPid) - shellPid).ifEmpty { listOf(shellPid) }.forEach { signal(it, OsConstants.SIGTERM) }
-        if (process.waitFor(graceMillis, TimeUnit.MILLISECONDS)) return
+        if (waitFor(graceMillis)) return
     }
     repeat(KILL_ROUNDS) {
         traceesOf(prootPid).forEach { signal(it, OsConstants.SIGKILL) }
-        if (process.waitFor(KILL_ROUND_WAIT_MS, TimeUnit.MILLISECONDS)) return
+        if (waitFor(KILL_ROUND_WAIT_MS)) return
     }
-    process.destroyForcibly()
-    process.waitFor(KILL_WAIT_MS, TimeUnit.MILLISECONDS)
+    destroy()
+    waitFor(KILL_WAIT_MS)
 }
 
 // 刚启动时 shell 可能还没写入进程号, 稍等片刻
-private fun readPids(process: Process, pidFile: File): Pair<Int, Int>? {
+private fun readPids(isAlive: () -> Boolean, pidFile: File): Pair<Int, Int>? {
     val deadline = System.currentTimeMillis() + PID_WAIT_MS
     while (true) {
         val pids = runCatching { pidFile.readText() }.getOrNull()
@@ -52,7 +72,7 @@ private fun readPids(process: Process, pidFile: File): Pair<Int, Int>? {
             ?.split(' ')
             ?.mapNotNull { it.toIntOrNull() }
         if (pids != null && pids.size == 2) return pids[0] to pids[1]
-        if (!process.isAlive || System.currentTimeMillis() > deadline) return null
+        if (!isAlive() || System.currentTimeMillis() > deadline) return null
         Thread.sleep(50)
     }
 }

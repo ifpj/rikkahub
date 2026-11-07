@@ -362,6 +362,13 @@ class WorkspaceRepository(
         }
     }
 
+    suspend fun startBackgroundCommand(
+        id: String,
+        command: String,
+        cwd: String,
+        taskId: String,
+    ): WorkspaceBackgroundCommand = withBackend(id) { it.startBackgroundCommand(command, cwd, taskId) }
+
     suspend fun startCommandSession(
         id: String,
         command: String,

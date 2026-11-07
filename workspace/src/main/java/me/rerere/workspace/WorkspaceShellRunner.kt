@@ -285,6 +285,50 @@ private class JavaProcessBackend(
     }
 }
 
+/** 等待命令结束并收集输出; 超时或线程被中断时用 [terminate] 结束进程 */
+fun Process.readResult(
+    timeoutMillis: Long,
+    stdin: ByteArray? = null,
+    terminate: Process.() -> Unit = { destroyForcibly() },
+): WorkspaceCommandResult {
+    val stdout = StreamCollector(inputStream)
+    val stderr = StreamCollector(errorStream)
+    val stdinWriter = stdin?.let { bytes -> StreamWriter(outputStream, bytes) }
+    if (stdinWriter == null) {
+        // 没有 stdin 输入时立即关闭管道, 让子进程读到 EOF;
+        // 否则 cat/gh/kubectl 等按 isatty 判断的工具会把这根永不写入的管道当成待输入流而永久阻塞
+        try {
+            outputStream.close()
+        } catch (_: IOException) {
+            // 子进程已提前退出导致管道关闭, 忽略
+        }
+    }
+    try {
+        val finished = waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
+        if (!finished) {
+            terminate()
+        }
+        stdinWriter?.join(1_000)
+        stdout.join(1_000)
+        stderr.join(1_000)
+        return WorkspaceCommandResult(
+            exitCode = if (finished) exitValue() else -1,
+            stdout = stdout.text(),
+            stderr = stderr.text(),
+            timedOut = !finished,
+            truncated = stdout.truncated || stderr.truncated,
+        )
+    } catch (e: InterruptedException) {
+        // 调用方线程被中断（如协程取消时的 runInterruptible），杀掉进程避免命令继续执行
+        terminate()
+        // 进程被杀后 stdout/stderr 会关闭, 这里 join 回收两个采集线程, 避免每次取消泄漏一对线程
+        stdinWriter?.join(1_000)
+        stdout.join(1_000)
+        stderr.join(1_000)
+        throw e
+    }
+}
+
 internal class StreamWriter(
     private val stream: OutputStream,
     private val bytes: ByteArray,

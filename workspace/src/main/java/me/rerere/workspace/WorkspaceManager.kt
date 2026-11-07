@@ -245,6 +245,26 @@ class WorkspaceManager(
         )
     }
 
+    fun startBackgroundCommand(
+        root: String,
+        command: String,
+        cwd: String,
+        id: String,
+        shellCompatibilityMode: Boolean = false,
+        additionalBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ): WorkspaceBackgroundCommand = shellRunner.startBackground(
+        createShellContext(
+            root,
+            command,
+            cwd,
+            0,
+            null,
+            shellCompatibilityMode,
+            additionalBindMounts = additionalBindMounts
+        ),
+        id,
+    )
+
     /** Starts a command and retains it as a session when it is still running after [yieldMillis]. */
     fun startCommandSession(
         root: String,

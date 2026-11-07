@@ -16,6 +16,20 @@ internal fun ConversationInbox.nextMessage(): QueuedMessage? = (takeNext() as? I
 internal fun ConversationInbox.removeMessage(id: Uuid): QueuedMessage? = remove(id) as QueuedMessage?
 
 class ConversationInboxTest {
+    @Test
+    fun `discarding a temporary chat clears messages and notices and resolves observers`() = runBlocking {
+        val inbox = ConversationInbox()
+        val reply = CompletableDeferred<String?>()
+        inbox.enqueue(text("temporary"), reply = reply)
+        inbox.post("task", notice("done"))
+
+        assertEquals(1, inbox.discard().size)
+        assertTrue(inbox.state.value.items.isEmpty())
+        assertTrue(inbox.state.value.paused)
+        assertNull(reply.await())
+        assertTrue(inbox.discard().isEmpty())
+    }
+
     private fun text(value: String) = listOf(UIMessagePart.Text(value))
 
     private fun notice(name: String) = UIMessagePart.Notice(title = name, text = "<notice>$name</notice>")

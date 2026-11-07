@@ -39,12 +39,15 @@ import me.rerere.ai.ui.DiffMetadata
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.common.http.jsonObjectOrNull
-import me.rerere.highlight.CodeHighlightText
+import me.rerere.rikkahub.ui.components.richtext.CodeHighlightText
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.FileAdd
 import me.rerere.hugeicons.stroke.FileEdit
 import me.rerere.hugeicons.stroke.FileView
+import me.rerere.rikkahub.service.BackgroundShellManager
+import me.rerere.rikkahub.service.BackgroundShellStatus
+import me.rerere.rikkahub.ui.components.ai.BackgroundTaskLog
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.tools.SHELL_TERMINAL_OUTPUT_METADATA_KEY
 import me.rerere.rikkahub.ui.components.richtext.HighlightCodeBlock
@@ -325,7 +328,7 @@ object ShellToolUI : ToolUIRenderer {
     }
 
     override fun hasSummary(context: ToolUIContext): Boolean =
-        context.content?.jsonObjectOrNull?.containsKey("stdout") == true
+        context.content?.let { it.jsonObjectOrNull?.containsKey("stdout") == true || it.getStringContent("task_id") != null } == true
 
     @Composable
     override fun Summary(context: ToolUIContext) {
@@ -361,7 +364,7 @@ object ShellToolUI : ToolUIRenderer {
     @Composable
     override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
         val content = context.content
-        if (content == null || content.jsonObjectOrNull?.containsKey("stdout") != true) {
+        if (content == null || (content.jsonObjectOrNull?.containsKey("stdout") != true && content.getStringContent("task_id") == null)) {
             DefaultToolPreview(context = context)
             return
         }
@@ -401,6 +404,7 @@ object ShellToolUI : ToolUIRenderer {
                 language = if (command == null) "plaintext" else "bash",
                 modifier = Modifier.fillMaxWidth(),
             )
+            content.getStringContent("task_id")?.let { BackgroundTaskPreviewLog(it) }
             if (!terminalOutput.isNullOrEmpty()) {
                 Text(text = "terminal", style = MaterialTheme.typography.labelMedium)
                 Box(
@@ -587,9 +591,51 @@ private fun ansiColor(index: Int): Color {
     return Color(gray, gray, gray)
 }
 
+/** 后台命令的实时状态; 任务只存在内存里, 应用重启后查不到时只显示任务 ID */
+@Composable
+private fun BackgroundTaskStatus(taskId: String, style: androidx.compose.ui.text.TextStyle) {
+    val manager = koinInject<BackgroundShellManager>()
+    val tasks by manager.tasks.collectAsStateWithLifecycle()
+    val task = tasks[taskId]
+    val colors = MaterialTheme.colorScheme
+    Text(
+        text = when (task?.status) {
+            BackgroundShellStatus.RUNNING -> stringResource(R.string.tool_ui_shell_background_running, taskId)
+            BackgroundShellStatus.EXITED -> stringResource(R.string.tool_ui_shell_exit, "${task.exitCode}") + " · $taskId"
+            BackgroundShellStatus.KILLED -> stringResource(R.string.tool_ui_shell_background_stopped, taskId)
+            null -> stringResource(R.string.tool_ui_shell_background, taskId)
+        },
+        style = style,
+        color = when {
+            task?.status == BackgroundShellStatus.RUNNING -> colors.primary
+            task?.status == BackgroundShellStatus.EXITED -> if (task.exitCode == 0) DiffAddedColor else colors.error
+            else -> colors.onSurfaceVariant
+        },
+    )
+}
+
+/** 工具卡片详情里的日志, 任务已经不存在时不显示 */
+@Composable
+private fun BackgroundTaskPreviewLog(taskId: String) {
+    val manager = koinInject<BackgroundShellManager>()
+    val tasks by manager.tasks.collectAsStateWithLifecycle()
+    val task = tasks[taskId] ?: return
+    BackgroundTaskLog(
+        task = task,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 360.dp),
+    )
+}
+
 /** Shell 退出状态文本: exit code 为 0 显示绿色, 超时或非零显示错误色 */
 @Composable
 private fun ShellExitStatus(content: JsonElement, style: androidx.compose.ui.text.TextStyle) {
+    val taskId = content.getStringContent("task_id") ?: content.getStringContent("taskId")
+    if (taskId != null) {
+        BackgroundTaskStatus(taskId, style)
+        return
+    }
     val running = content.getStringContent("status") == "running"
     val exitCode = content.int("exit_code") ?: content.int("exitCode")
     val timedOut = content.boolean("timed_out") ?: content.boolean("timedOut") ?: false
